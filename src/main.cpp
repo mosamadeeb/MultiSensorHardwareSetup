@@ -263,13 +263,13 @@ void setup() {
 
 void loop() {
     int reedSwitchState = digitalRead(reedSwitchPin);
-    if (reedSwitchState == HIGH) {
-        //Serial.println("Reed Switch state: LOW (No magnetic field detected)");
-        Serial.print("0,");
-    } else {
-        //Serial.println("Reed Switch state: HIGH (Magnetic field detected)");
-        Serial.print("1,");
-    }
+//    if (reedSwitchState == HIGH) {
+//        //Serial.println("Reed Switch state: LOW (No magnetic field detected)");
+//        Serial.print("0,");
+//    } else {
+//        //Serial.println("Reed Switch state: HIGH (Magnetic field detected)");
+//        Serial.print("1,");
+//    }
 
     // if programming failed, don't try to do anything
     if (!dmpReady) return;
@@ -278,28 +278,28 @@ void loop() {
 #ifdef OUTPUT_READABLE_QUATERNION
         // display quaternion values in easy matrix form: w x y z
         mpu.dmpGetQuaternion(&q, fifoBuffer);
-        //Serial.print("quat\t");
+        Serial.print("quat\t");
         Serial.print(round(q.w*1000));
-        Serial.print(",");
+        Serial.print(",\t");
         Serial.print(round(q.x*1000));
-        Serial.print(",");
+        Serial.print(",\t");
         Serial.print(round(q.y*1000));
-        Serial.print(",");
-        Serial.print(round(q.z*1000));
-        Serial.print(",");
+        Serial.print(",\t");
+        Serial.println(round(q.z*1000));
+//        Serial.print(",\t");
 #endif
 
 #ifdef OUTPUT_READABLE_EULER
         // display Euler angles in degrees
         mpu.dmpGetQuaternion(&q, fifoBuffer);
         mpu.dmpGetEuler(euler, &q);
-        //Serial.print("euler\t");
+        Serial.print("euler\t");
         Serial.print(round(euler[0] * 180/M_PI));
-        Serial.print(",");
+        Serial.print(",\t");
         Serial.print(round(euler[1] * 180/M_PI));
-        Serial.print(",");
-        Serial.print(round(euler[2] * 180/M_PI));
-        Serial.print(",");
+        Serial.print(",\t");
+        Serial.println(round(euler[2] * 180/M_PI));
+//        Serial.print(",\t");
 #endif
 
 #ifdef OUTPUT_READABLE_YAWPITCHROLL
@@ -307,13 +307,13 @@ void loop() {
             mpu.dmpGetQuaternion(&q, fifoBuffer);
             mpu.dmpGetGravity(&gravity, &q);
             mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-            //Serial.print("ypr\t");
+            Serial.print("ypr\t");
             Serial.print(ypr[0] * 180/M_PI);
-            Serial.print(",");
+            Serial.print(",\t");
             Serial.print(ypr[1] * 180/M_PI);
-            Serial.print(",");
-            Serial.print(ypr[2] * 180/M_PI);
-            Serial.print(",");
+            Serial.print(",\t");
+            Serial.println(ypr[2] * 180/M_PI);
+//            Serial.print(",\t");
 #endif
 
 #ifdef OUTPUT_READABLE_REALACCEL
@@ -322,29 +322,29 @@ void loop() {
         mpu.dmpGetAccel(&aa, fifoBuffer);
         mpu.dmpGetGravity(&gravity, &q);
         mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
-        //Serial.print("areal\t");
+        Serial.print("areal\t");
         Serial.print(aaReal.x);
-        Serial.print(",");
+        Serial.print(",\t");
         Serial.print(aaReal.y);
-        Serial.print(",");
-        Serial.print(aaReal.z);
-        //Serial.print("acc\t");
-        Serial.print(",");
+        Serial.print(",\t");
+        Serial.println(aaReal.z);
+        Serial.print("acc\t");
+//        Serial.print(",\t");
         Serial.print(aa.x);
-        Serial.print(",");
+        Serial.print(",\t");
         Serial.print(aa.y);
-        Serial.print(",");
-        Serial.print(aa.z);
-        Serial.print(",");
+        Serial.print(",\t");
+        Serial.println(aa.z);
+//        Serial.print(",\t");
 #endif
         mpu.dmpGetGyro(&gyro,fifoBuffer);
-        //Serial.print("AngularVal\t");
+        Serial.print("AngularVal\t");
         Serial.print(gyro.x);
-        Serial.print(",");
+        Serial.print(",\t");
         Serial.print(gyro.y);
-        Serial.print(",");
+        Serial.print(",\t");
         Serial.println(gyro.z);
-        Serial.print(",");
+//        Serial.print(",\t");
 #ifdef OUTPUT_READABLE_WORLDACCEL
         // display initial world-frame acceleration, adjusted to remove gravity
             // and rotated based on known orientation from quaternion
@@ -353,11 +353,11 @@ void loop() {
             mpu.dmpGetGravity(&gravity, &q);
             mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
             mpu.dmpGetLinearAccelInWorld(&aaWorld, &aaReal, &q);
-            //Serial.print("aworld\t");
+            Serial.print("aworld\t");
             Serial.print(aaWorld.x);
-            Serial.print(",");
+            Serial.print(",\t");
             Serial.print(aaWorld.y);
-            Serial.print(",");
+            Serial.print(",\t");
             Serial.println(aaWorld.z);
 #endif
 
@@ -374,6 +374,7 @@ void loop() {
             Serial.write(teapotPacket, 14);
             teapotPacket[11]++; // packetCount, loops at 0xFF on purpose
 #endif
+        Serial.println("_____________________________________________________________");
         delay(1000);
         // blink LED to indicate activity
         blinkState = !blinkState;
