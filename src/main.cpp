@@ -273,6 +273,9 @@ void loop() {
 
     // if programming failed, don't try to do anything
     if (!dmpReady) return;
+
+    while (Serial.available()<=0 || Serial.read() != 'g');
+
     // read a packet from FIFO
     if (mpu.dmpGetCurrentFIFOPacket(fifoBuffer)) { // Get the Latest packet 
 #ifdef OUTPUT_READABLE_QUATERNION
