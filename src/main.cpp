@@ -86,18 +86,22 @@ MPU6050 mpu;
    http://code.google.com/p/arduino/issues/detail?id=958
  * ========================================================================= */
 
+// choose sensor number for calibration values
+#define SENSOR_1
 
+// uncomment "SERIAL_PRINT_TITLE" if you want to print the values without the titles
+//#define SERIAL_PRINT_TITLE
 
 // uncomment "OUTPUT_READABLE_QUATERNION" if you want to see the actual
 // quaternion components in a [w, x, y, z] format (not best for parsing
 // on a remote host such as Processing or something though)
-#define OUTPUT_READABLE_QUATERNION
+//#define OUTPUT_READABLE_QUATERNION
 
 // uncomment "OUTPUT_READABLE_EULER" if you want to see Euler angles
 // (in degrees) calculated from the quaternions coming from the FIFO.
 // Note that Euler angles suffer from gimbal lock (for more info, see
 // http://en.wikipedia.org/wiki/Gimbal_lock)
-#define OUTPUT_READABLE_EULER
+//#define OUTPUT_READABLE_EULER
 
 // uncomment "OUTPUT_READABLE_YAWPITCHROLL" if you want to see the yaw/
 // pitch/roll angles (in degrees) calculated from the quaternions coming
@@ -111,19 +115,25 @@ MPU6050 mpu;
 // not compensated for orientation, so +X is always +X according to the
 // sensor, just without the effects of gravity. If you want acceleration
 // compensated for orientation, us OUTPUT_READABLE_WORLDACCEL instead.
-#define OUTPUT_READABLE_REALACCEL
+//#define OUTPUT_READABLE_REALACCEL
+
+//#define OUTPUT_READABLE_GYRO
 
 // uncomment "OUTPUT_READABLE_WORLDACCEL" if you want to see acceleration
 // components with gravity removed and adjusted for the world frame of
 // reference (yaw is relative to initial orientation, since no magnetometer
 // is present in this case). Could be quite handy in some cases.
-//#define OUTPUT_READABLE_WORLDACCEL
+#define OUTPUT_READABLE_WORLDACCEL
+
+// uncomment these to print the respective vectors
+// applies for OUTPUT_READABLE_REALACCEL and OUTPUT_READABLE_WORLDACCEL
+#define OUTPUT_REALACC
+#define OUTPUT_ACC
+#define OUTPUT_GRAVITY
 
 // uncomment "OUTPUT_TEAPOT" if you want output that matches the
 // format used for the InvenSense teapot demo
 //#define OUTPUT_TEAPOT
-
-
 
 #define INTERRUPT_PIN 2  // use pin 2 on Arduino Uno & most boards
 #define LED_PIN 13 // (Arduino is 13, Teensy is 11, Teensy++ is 6)
@@ -150,7 +160,12 @@ float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gra
 // packet structure for InvenSense teapot demo
 uint8_t teapotPacket[14] = { '$', 0x02, 0,0, 0,0, 0,0, 0,0, 0x00, 0x00, '\r', '\n' };
 
-
+void inline SerialPrintTitle(const char* text) {
+#ifdef SERIAL_PRINT_TITLE
+    Serial.print(text);
+    Serial.print("\t");
+#endif
+}
 
 // ================================================================
 // ===               INTERRUPT DETECTION ROUTINE                ===
@@ -191,31 +206,41 @@ void setup() {
     // crystal solution for the UART timer.
 
     // initialize device
-    Serial.println(F("Initializing I2C devices..."));
+//    Serial.println(F("Initializing I2C devices..."));
     mpu.initialize();
     pinMode(INTERRUPT_PIN, INPUT);
 
     // verify connection
-    Serial.println(F("Testing device connections..."));
-    Serial.println(mpu.testConnection() ? F("MPU6050 connection successful") : F("MPU6050 connection failed"));
+//    Serial.println(F("Testing device connections..."));
+//    Serial.println(mpu.testConnection() ? F("MPU6050 connection successful") : F("MPU6050 connection failed"));
 
     // wait for ready
-    Serial.println(F("\nSend any character to begin DMP programming and demo: "));
+//    Serial.println(F("\nSend any character to begin DMP programming and demo: "));
     while (Serial.available() && Serial.read()); // empty buffer
     while (!Serial.available());                 // wait for data
     while (Serial.available() && Serial.read()); // empty buffer again
 
     // load and configure the DMP
-    Serial.println(F("Initializing DMP..."));
+//    Serial.println(F("Initializing DMP..."));
     devStatus = mpu.dmpInitialize();
 
     // supply your own gyro offsets here, scaled for min sensitivity
+#ifdef SENSOR_1
     mpu.setXAccelOffset(-909);
     mpu.setYAccelOffset(-2);
     mpu.setZAccelOffset(1062);
     mpu.setXGyroOffset(72);
     mpu.setYGyroOffset(58);
     mpu.setZGyroOffset(-10);
+#endif
+#ifdef SENSOR_2
+    mpu.setXAccelOffset(-3874);
+    mpu.setYAccelOffset(13);
+    mpu.setZAccelOffset(1058);
+    mpu.setXGyroOffset(-5);
+    mpu.setYGyroOffset(-17);
+    mpu.setZGyroOffset(-24);
+#endif
 
     // make sure it worked (returns 0 if so)
     if (devStatus == 0) {
@@ -225,18 +250,18 @@ void setup() {
 //        mpu.PrintActiveOffsets();
 
         // turn on the DMP, now that it's ready
-        Serial.println(F("Enabling DMP..."));
+//        Serial.println(F("Enabling DMP..."));
         mpu.setDMPEnabled(true);
 
         // enable Arduino interrupt detection
-        Serial.print(F("Enabling interrupt detection (Arduino external interrupt "));
-        Serial.print(digitalPinToInterrupt(INTERRUPT_PIN));
-        Serial.println(F(")..."));
+//        Serial.print(F("Enabling interrupt detection (Arduino external interrupt "));
+//        Serial.print(digitalPinToInterrupt(INTERRUPT_PIN));
+//        Serial.println(F(")..."));
         attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), dmpDataReady, RISING);
         mpuIntStatus = mpu.getIntStatus();
 
         // set our DMP Ready flag so the main loop() function knows it's okay to use it
-        Serial.println(F("DMP ready! Waiting for first interrupt..."));
+//        Serial.println(F("DMP ready! Waiting for first interrupt..."));
         dmpReady = true;
 
         // get expected DMP packet size for later comparison
@@ -246,9 +271,9 @@ void setup() {
         // 1 = initial memory load failed
         // 2 = DMP configuration updates failed
         // (if it's going to break, usually the code will be 1)
-        Serial.print(F("DMP Initialization failed (code "));
-        Serial.print(devStatus);
-        Serial.println(F(")"));
+//        Serial.print(F("DMP Initialization failed (code "));
+//        Serial.print(devStatus);
+//        Serial.println(F(")"));
     }
 
     // configure LED for output
@@ -273,33 +298,34 @@ void loop() {
 
     // if programming failed, don't try to do anything
     if (!dmpReady) return;
+
+    while (Serial.available()<=0 || Serial.read() != 'g');
+
     // read a packet from FIFO
     if (mpu.dmpGetCurrentFIFOPacket(fifoBuffer)) { // Get the Latest packet 
 #ifdef OUTPUT_READABLE_QUATERNION
         // display quaternion values in easy matrix form: w x y z
         mpu.dmpGetQuaternion(&q, fifoBuffer);
-        Serial.print("quat\t");
+        SerialPrintTitle("quat");
         Serial.print(round(q.w*1000));
-        Serial.print(",\t");
+        Serial.print("\t");
         Serial.print(round(q.x*1000));
-        Serial.print(",\t");
+        Serial.print("\t");
         Serial.print(round(q.y*1000));
-        Serial.print(",\t");
+        Serial.print("\t");
         Serial.println(round(q.z*1000));
-//        Serial.print(",\t");
 #endif
 
 #ifdef OUTPUT_READABLE_EULER
         // display Euler angles in degrees
         mpu.dmpGetQuaternion(&q, fifoBuffer);
         mpu.dmpGetEuler(euler, &q);
-        Serial.print("euler\t");
+        SerialPrintTitle("euler");
         Serial.print(round(euler[0] * 180/M_PI));
-        Serial.print(",\t");
+        Serial.print("\t");
         Serial.print(round(euler[1] * 180/M_PI));
-        Serial.print(",\t");
+        Serial.print("\t");
         Serial.println(round(euler[2] * 180/M_PI));
-//        Serial.print(",\t");
 #endif
 
 #ifdef OUTPUT_READABLE_YAWPITCHROLL
@@ -307,13 +333,12 @@ void loop() {
             mpu.dmpGetQuaternion(&q, fifoBuffer);
             mpu.dmpGetGravity(&gravity, &q);
             mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-            Serial.print("ypr\t");
+            SerialPrintTitle("ypr");
             Serial.print(ypr[0] * 180/M_PI);
-            Serial.print(",\t");
+            Serial.print("\t");
             Serial.print(ypr[1] * 180/M_PI);
-            Serial.print(",\t");
+            Serial.print("\t");
             Serial.println(ypr[2] * 180/M_PI);
-//            Serial.print(",\t");
 #endif
 
 #ifdef OUTPUT_READABLE_REALACCEL
@@ -322,43 +347,77 @@ void loop() {
         mpu.dmpGetAccel(&aa, fifoBuffer);
         mpu.dmpGetGravity(&gravity, &q);
         mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
-        Serial.print("areal\t");
+        SerialPrintTitle("\nareal");
         Serial.print(aaReal.x);
-        Serial.print(",\t");
+        Serial.print("\t");
         Serial.print(aaReal.y);
-        Serial.print(",\t");
+        Serial.print("\t");
         Serial.println(aaReal.z);
-        Serial.print("acc\t");
-//        Serial.print(",\t");
+#ifdef OUTPUT_ACC
+        SerialPrintTitle("acc");
         Serial.print(aa.x);
-        Serial.print(",\t");
+        Serial.print("\t");
         Serial.print(aa.y);
-        Serial.print(",\t");
+        Serial.print("\t");
         Serial.println(aa.z);
-//        Serial.print(",\t");
 #endif
+#ifdef OUTPUT_GRAVITY
+        SerialPrintTitle("grav");
+        Serial.print(gravity.x);
+        Serial.print("\t");
+        Serial.print(gravity.y);
+        Serial.print("\t");
+        Serial.println(gravity.z);
+#endif
+#endif
+
+#ifdef OUTPUT_READABLE_GYRO
         mpu.dmpGetGyro(&gyro,fifoBuffer);
-        Serial.print("AngularVal\t");
+        SerialPrintTitle("AngularVal");
         Serial.print(gyro.x);
-        Serial.print(",\t");
+        Serial.print("\t");
         Serial.print(gyro.y);
-        Serial.print(",\t");
+        Serial.print("\t");
         Serial.println(gyro.z);
-//        Serial.print(",\t");
+#endif
 #ifdef OUTPUT_READABLE_WORLDACCEL
         // display initial world-frame acceleration, adjusted to remove gravity
-            // and rotated based on known orientation from quaternion
-            mpu.dmpGetQuaternion(&q, fifoBuffer);
-            mpu.dmpGetAccel(&aa, fifoBuffer);
-            mpu.dmpGetGravity(&gravity, &q);
-            mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
-            mpu.dmpGetLinearAccelInWorld(&aaWorld, &aaReal, &q);
-            Serial.print("aworld\t");
-            Serial.print(aaWorld.x);
-            Serial.print(",\t");
-            Serial.print(aaWorld.y);
-            Serial.print(",\t");
-            Serial.println(aaWorld.z);
+        // and rotated based on known orientation from quaternion
+        mpu.dmpGetQuaternion(&q, fifoBuffer);
+        mpu.dmpGetAccel(&aa, fifoBuffer);
+        mpu.dmpGetGravity(&gravity, &q);
+        mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
+        mpu.dmpGetLinearAccelInWorld(&aaWorld, &aaReal, &q);
+        SerialPrintTitle("\naworld");
+        Serial.print(aaWorld.x);
+        Serial.print("\t");
+        Serial.print(aaWorld.y);
+        Serial.print("\t");
+        Serial.println(aaWorld.z);
+#ifdef OUTPUT_REALACC
+        SerialPrintTitle("areal");
+        Serial.print(aaReal.x);
+        Serial.print("\t");
+        Serial.print(aaReal.y);
+        Serial.print("\t");
+        Serial.println(aaReal.z);
+#endif
+#ifdef OUTPUT_ACC
+        SerialPrintTitle("acc");
+        Serial.print(aa.x);
+        Serial.print("\t");
+        Serial.print(aa.y);
+        Serial.print("\t");
+        Serial.println(aa.z);
+#endif
+#ifdef OUTPUT_GRAVITY
+        SerialPrintTitle("grav");
+        Serial.print(gravity.x);
+        Serial.print("\t");
+        Serial.print(gravity.y);
+        Serial.print("\t");
+        Serial.println(gravity.z);
+#endif
 #endif
 
 #ifdef OUTPUT_TEAPOT
@@ -374,10 +433,10 @@ void loop() {
             Serial.write(teapotPacket, 14);
             teapotPacket[11]++; // packetCount, loops at 0xFF on purpose
 #endif
-        Serial.println("_____________________________________________________________");
-        delay(1000);
+//        Serial.println("_____________________________________________________________");
+//        delay(300);
         // blink LED to indicate activity
-        blinkState = !blinkState;
-        digitalWrite(LED_PIN, blinkState);
+//        blinkState = !blinkState;
+//        digitalWrite(LED_PIN, blinkState);
     }
 }
