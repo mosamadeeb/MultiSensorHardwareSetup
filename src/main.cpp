@@ -86,7 +86,8 @@ MPU6050 mpu;
    http://code.google.com/p/arduino/issues/detail?id=958
  * ========================================================================= */
 
-
+// uncomment "SERIAL_PRINT_TITLE" if you want to print the values without the titles
+//#define SERIAL_PRINT_TITLE
 
 // uncomment "OUTPUT_READABLE_QUATERNION" if you want to see the actual
 // quaternion components in a [w, x, y, z] format (not best for parsing
@@ -121,11 +122,15 @@ MPU6050 mpu;
 // is present in this case). Could be quite handy in some cases.
 #define OUTPUT_READABLE_WORLDACCEL
 
+// uncomment these to print the respective vectors
+// applies for OUTPUT_READABLE_REALACCEL and OUTPUT_READABLE_WORLDACCEL
+#define OUTPUT_REALACC
+#define OUTPUT_ACC
+#define OUTPUT_GRAVITY
+
 // uncomment "OUTPUT_TEAPOT" if you want output that matches the
 // format used for the InvenSense teapot demo
 //#define OUTPUT_TEAPOT
-
-
 
 #define INTERRUPT_PIN 2  // use pin 2 on Arduino Uno & most boards
 #define LED_PIN 13 // (Arduino is 13, Teensy is 11, Teensy++ is 6)
@@ -152,7 +157,12 @@ float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gra
 // packet structure for InvenSense teapot demo
 uint8_t teapotPacket[14] = { '$', 0x02, 0,0, 0,0, 0,0, 0,0, 0x00, 0x00, '\r', '\n' };
 
-
+void inline SerialPrintTitle(const char* text) {
+#ifdef SERIAL_PRINT_TITLE
+    Serial.print(text);
+    Serial.print("\t");
+#endif
+}
 
 // ================================================================
 // ===               INTERRUPT DETECTION ROUTINE                ===
@@ -289,13 +299,13 @@ void loop() {
 #ifdef OUTPUT_READABLE_QUATERNION
         // display quaternion values in easy matrix form: w x y z
         mpu.dmpGetQuaternion(&q, fifoBuffer);
-        Serial.print("quat\t");
+        SerialPrintTitle("quat");
         Serial.print(round(q.w*1000));
-        Serial.print(",");
+        Serial.print("\t");
         Serial.print(round(q.x*1000));
-        Serial.print(",");
+        Serial.print("\t");
         Serial.print(round(q.y*1000));
-        Serial.print(",");
+        Serial.print("\t");
         Serial.println(round(q.z*1000));
 #endif
 
@@ -303,11 +313,11 @@ void loop() {
         // display Euler angles in degrees
         mpu.dmpGetQuaternion(&q, fifoBuffer);
         mpu.dmpGetEuler(euler, &q);
-        Serial.print("euler\t");
+        SerialPrintTitle("euler");
         Serial.print(round(euler[0] * 180/M_PI));
-        Serial.print(",\t");
+        Serial.print("\t");
         Serial.print(round(euler[1] * 180/M_PI));
-        Serial.print(",\t");
+        Serial.print("\t");
         Serial.println(round(euler[2] * 180/M_PI));
 #endif
 
@@ -316,13 +326,12 @@ void loop() {
             mpu.dmpGetQuaternion(&q, fifoBuffer);
             mpu.dmpGetGravity(&gravity, &q);
             mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-            Serial.print("ypr\t");
+            SerialPrintTitle("ypr");
             Serial.print(ypr[0] * 180/M_PI);
-            Serial.print(",\t");
+            Serial.print("\t");
             Serial.print(ypr[1] * 180/M_PI);
-            Serial.print(",\t");
+            Serial.print("\t");
             Serial.println(ypr[2] * 180/M_PI);
-//            Serial.print(",\t");
 #endif
 
 #ifdef OUTPUT_READABLE_REALACCEL
@@ -331,67 +340,77 @@ void loop() {
         mpu.dmpGetAccel(&aa, fifoBuffer);
         mpu.dmpGetGravity(&gravity, &q);
         mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
-        Serial.print("\nareal\t");
+        SerialPrintTitle("\nareal");
         Serial.print(aaReal.x);
-        Serial.print(",\t");
+        Serial.print("\t");
         Serial.print(aaReal.y);
-        Serial.print(",\t");
+        Serial.print("\t");
         Serial.println(aaReal.z);
-        Serial.print("acc\t");
+#ifdef OUTPUT_ACC
+        SerialPrintTitle("acc");
         Serial.print(aa.x);
-        Serial.print(",\t");
+        Serial.print("\t");
         Serial.print(aa.y);
-        Serial.print(",\t");
+        Serial.print("\t");
         Serial.println(aa.z);
-        Serial.print("grav\t");
+#endif
+#ifdef OUTPUT_GRAVITY
+        SerialPrintTitle("grav");
         Serial.print(gravity.x);
-        Serial.print(",\t");
+        Serial.print("\t");
         Serial.print(gravity.y);
-        Serial.print(",\t");
+        Serial.print("\t");
         Serial.println(gravity.z);
+#endif
 #endif
 
 #ifdef OUTPUT_READABLE_GYRO
         mpu.dmpGetGyro(&gyro,fifoBuffer);
-        Serial.print("AngularVal\t");
+        SerialPrintTitle("AngularVal");
         Serial.print(gyro.x);
-        Serial.print(",\t");
+        Serial.print("\t");
         Serial.print(gyro.y);
-        Serial.print(",\t");
+        Serial.print("\t");
         Serial.println(gyro.z);
 #endif
 #ifdef OUTPUT_READABLE_WORLDACCEL
         // display initial world-frame acceleration, adjusted to remove gravity
-            // and rotated based on known orientation from quaternion
-            mpu.dmpGetQuaternion(&q, fifoBuffer);
-            mpu.dmpGetAccel(&aa, fifoBuffer);
-            mpu.dmpGetGravity(&gravity, &q);
-            mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
-            mpu.dmpGetLinearAccelInWorld(&aaWorld, &aaReal, &q);
-            Serial.print("\naworld\t");
-            Serial.print(aaWorld.x);
-            Serial.print(",\t");
-            Serial.print(aaWorld.y);
-            Serial.print(",\t");
-            Serial.println(aaWorld.z);
-            Serial.print("\nareal\t");
-            Serial.print(aaReal.x);
-            Serial.print(",\t");
-            Serial.print(aaReal.y);
-            Serial.print(",\t");
-            Serial.println(aaReal.z);
-            Serial.print("acc\t");
-            Serial.print(aa.x);
-            Serial.print(",\t");
-            Serial.print(aa.y);
-            Serial.print(",\t");
-            Serial.println(aa.z);
-            Serial.print("grav\t");
-            Serial.print(gravity.x);
-            Serial.print(",\t");
-            Serial.print(gravity.y);
-            Serial.print(",\t");
-            Serial.println(gravity.z);
+        // and rotated based on known orientation from quaternion
+        mpu.dmpGetQuaternion(&q, fifoBuffer);
+        mpu.dmpGetAccel(&aa, fifoBuffer);
+        mpu.dmpGetGravity(&gravity, &q);
+        mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
+        mpu.dmpGetLinearAccelInWorld(&aaWorld, &aaReal, &q);
+        SerialPrintTitle("\naworld");
+        Serial.print(aaWorld.x);
+        Serial.print("\t");
+        Serial.print(aaWorld.y);
+        Serial.print("\t");
+        Serial.println(aaWorld.z);
+#ifdef OUTPUT_REALACC
+        SerialPrintTitle("areal");
+        Serial.print(aaReal.x);
+        Serial.print("\t");
+        Serial.print(aaReal.y);
+        Serial.print("\t");
+        Serial.println(aaReal.z);
+#endif
+#ifdef OUTPUT_ACC
+        SerialPrintTitle("acc");
+        Serial.print(aa.x);
+        Serial.print("\t");
+        Serial.print(aa.y);
+        Serial.print("\t");
+        Serial.println(aa.z);
+#endif
+#ifdef OUTPUT_GRAVITY
+        SerialPrintTitle("grav");
+        Serial.print(gravity.x);
+        Serial.print("\t");
+        Serial.print(gravity.y);
+        Serial.print("\t");
+        Serial.println(gravity.z);
+#endif
 #endif
 
 #ifdef OUTPUT_TEAPOT
