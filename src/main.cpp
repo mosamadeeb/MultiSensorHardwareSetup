@@ -86,6 +86,9 @@ MPU6050 mpu;
    http://code.google.com/p/arduino/issues/detail?id=958
  * ========================================================================= */
 
+// choose sensor number for calibration values
+#define SENSOR_1
+
 // uncomment "SERIAL_PRINT_TITLE" if you want to print the values without the titles
 //#define SERIAL_PRINT_TITLE
 
@@ -222,18 +225,22 @@ void setup() {
     devStatus = mpu.dmpInitialize();
 
     // supply your own gyro offsets here, scaled for min sensitivity
-//    mpu.setXAccelOffset(-909);
-//    mpu.setYAccelOffset(-2);
-//    mpu.setZAccelOffset(1062);
-//    mpu.setXGyroOffset(72);
-//    mpu.setYGyroOffset(58);
-//    mpu.setZGyroOffset(-10);
+#ifdef SENSOR_1
+    mpu.setXAccelOffset(-909);
+    mpu.setYAccelOffset(-2);
+    mpu.setZAccelOffset(1062);
+    mpu.setXGyroOffset(72);
+    mpu.setYGyroOffset(58);
+    mpu.setZGyroOffset(-10);
+#endif
+#ifdef SENSOR_2
     mpu.setXAccelOffset(-3874);
     mpu.setYAccelOffset(13);
     mpu.setZAccelOffset(1058);
     mpu.setXGyroOffset(-5);
     mpu.setYGyroOffset(-17);
     mpu.setZGyroOffset(-24);
+#endif
 
     // make sure it worked (returns 0 if so)
     if (devStatus == 0) {
