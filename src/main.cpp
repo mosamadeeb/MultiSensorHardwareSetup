@@ -53,6 +53,7 @@ THE SOFTWARE.
 
 #include "MPU6050_6Axis_MotionApps20.h"
 //#include "MPU6050.h" // not necessary if using MotionApps include file
+#include "QMC5883LCompass.h"
 
 // Arduino Wire library is required if I2Cdev I2CDEV_ARDUINO_WIRE implementation
 // is used in I2Cdev.h
@@ -67,6 +68,8 @@ THE SOFTWARE.
 // AD0 high = 0x69
 MPU6050 mpu;
 //MPU6050 mpu(0x69); // <-- use for AD0 high
+
+QMC5883LCompass hmc;
 
 /* =========================================================================
    NOTE: In addition to connection 3.3v, GND, SDA, and SCL, this sketch
@@ -130,6 +133,8 @@ MPU6050 mpu;
 #define OUTPUT_REALACC
 #define OUTPUT_ACC
 #define OUTPUT_GRAVITY
+
+#define OUTPUT_READABLE_MAGNET
 
 // uncomment "OUTPUT_TEAPOT" if you want output that matches the
 // format used for the InvenSense teapot demo
@@ -209,6 +214,8 @@ void setup() {
 //    Serial.println(F("Initializing I2C devices..."));
     mpu.initialize();
     pinMode(INTERRUPT_PIN, INPUT);
+
+    hmc.init();
 
     // verify connection
 //    Serial.println(F("Testing device connections..."));
@@ -418,6 +425,17 @@ void loop() {
         Serial.print("\t");
         Serial.println(gravity.z);
 #endif
+#endif
+
+#ifdef OUTPUT_READABLE_MAGNET
+        // display magnetometer values
+        hmc.read();
+        SerialPrintTitle("mag");
+        Serial.print(hmc.getX());
+        Serial.print("\t");
+        Serial.print(hmc.getY());
+        Serial.print("\t");
+        Serial.println(hmc.getZ());
 #endif
 
 #ifdef OUTPUT_TEAPOT
