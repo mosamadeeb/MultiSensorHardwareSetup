@@ -55,6 +55,16 @@ THE SOFTWARE.
 //#include "MPU6050.h" // not necessary if using MotionApps include file
 #include "QMC5883LCompass.h"
 
+#include <TrivialKalmanFilter.h>
+
+TrivialKalmanFilter<float> kf1(4.7e-3, 5e-4);
+TrivialKalmanFilter<float> kf2(4.7e-3, 5e-4);
+TrivialKalmanFilter<float> kf3(4.7e-3, 5e-4);
+
+unsigned long timer = 0;
+bool kalmanSet = false;
+float kalmanPredictions[3] = {0,0,0};
+
 // Arduino Wire library is required if I2Cdev I2CDEV_ARDUINO_WIRE implementation
 // is used in I2Cdev.h
 #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
@@ -90,7 +100,7 @@ QMC5883LCompass hmc;
  * ========================================================================= */
 
 // choose sensor number for calibration values
-#define SENSOR_1
+#define SENSOR_2
 
 // uncomment "SERIAL_PRINT_TITLE" if you want to print the values without the titles
 //#define SERIAL_PRINT_TITLE
@@ -130,11 +140,11 @@ QMC5883LCompass hmc;
 
 // uncomment these to print the respective vectors
 // applies for OUTPUT_READABLE_REALACCEL and OUTPUT_READABLE_WORLDACCEL
-#define OUTPUT_REALACC
-#define OUTPUT_ACC
-#define OUTPUT_GRAVITY
+//#define OUTPUT_REALACC
+//#define OUTPUT_ACC
+//#define OUTPUT_GRAVITY
 
-#define OUTPUT_READABLE_MAGNET
+//#define OUTPUT_READABLE_MAGNET
 
 // uncomment "OUTPUT_TEAPOT" if you want output that matches the
 // format used for the InvenSense teapot demo
@@ -249,6 +259,12 @@ void setup() {
     mpu.setZGyroOffset(-24);
 #endif
 
+    // Set Low Pass Filter to 10Hz
+    mpu.setDLPFMode(MPU6050_DLPF_BW_10);
+
+    // Record starting time to delay Kalman filtering
+    timer = millis();
+
     // make sure it worked (returns 0 if so)
     if (devStatus == 0) {
         // Calibration Time: generate offsets and calibrate our MPU6050
@@ -285,6 +301,9 @@ void setup() {
 
     // configure LED for output
     pinMode(LED_PIN, OUTPUT);
+
+    // Turn on LED to indicate that filter is not working
+    digitalWrite(LED_PIN, true);
 }
 
 
@@ -395,12 +414,34 @@ void loop() {
         mpu.dmpGetGravity(&gravity, &q);
         mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
         mpu.dmpGetLinearAccelInWorld(&aaWorld, &aaReal, &q);
+
+        if (!kalmanSet) {
+            if (millis() - timer > 5000) {
+                kf1.update(aaWorld.x);
+                kf2.update(aaWorld.y);
+                kf3.update(aaWorld.z);
+
+                kalmanSet = true;
+
+                // Turn off LED to indicate that filter is working
+                digitalWrite(LED_PIN, false);
+            }
+
+            kalmanPredictions[0] = aaWorld.x;
+            kalmanPredictions[1] = aaWorld.y;
+            kalmanPredictions[2] = aaWorld.z;
+        } else {
+            kalmanPredictions[0] = kf1.update(aaWorld.x);
+            kalmanPredictions[1] = kf2.update(aaWorld.y);
+            kalmanPredictions[2] = kf3.update(aaWorld.z);
+        }
+
         SerialPrintTitle("\naworld");
-        Serial.print(aaWorld.x);
+        Serial.print(kalmanPredictions[0]);
         Serial.print("\t");
-        Serial.print(aaWorld.y);
+        Serial.print(kalmanPredictions[1]);
         Serial.print("\t");
-        Serial.println(aaWorld.z);
+        Serial.println(kalmanPredictions[2]);
 #ifdef OUTPUT_REALACC
         SerialPrintTitle("areal");
         Serial.print(aaReal.x);
