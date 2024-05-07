@@ -72,12 +72,24 @@ float kalmanPredictions[3] = {0,0,0};
 #endif
 
 #include <math.h>
+
+#ifdef MPU_COUNT
+const int mpuCount = MPU_COUNT;
+#else
+const int mpuCount = 1;
+#endif
+
 // class default I2C address is 0x68
 // specific I2C addresses may be passed as a parameter here
 // AD0 low = 0x68 (default for SparkFun breakout and InvenSense evaluation board)
 // AD0 high = 0x69
-MPU6050 mpu;
-//MPU6050 mpu(0x69); // <-- use for AD0 high
+
+MPU6050 mpuArray[4] = {
+        MPU6050(MPU6050_ADDRESS_AD0_LOW, &Wire),
+        MPU6050(MPU6050_ADDRESS_AD0_HIGH, &Wire),
+        MPU6050(MPU6050_ADDRESS_AD0_LOW, &Wire1),
+        MPU6050(MPU6050_ADDRESS_AD0_HIGH, &Wire1)
+};
 
 QMC5883LCompass hmc;
 
@@ -148,7 +160,7 @@ QMC5883LCompass hmc;
 
 bool blinkState = false;
 // MPU control/status vars
-bool dmpReady = false;  // set true if DMP init was successful
+bool dmpReady[4] = { false, false, false, false };  // set true if DMP init was successful
 uint8_t devStatus;      // return status after each device operation (0 = success, !0 = error)
 uint16_t packetSize;    // expected DMP packet size (default is 42 bytes)
 uint16_t fifoCount;     // count of all bytes currently in FIFO
@@ -181,6 +193,12 @@ void setup() {
 #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
     Wire.begin();
     Wire.setClock(400000); // 400kHz I2C clock. Comment this line if having compilation difficulties
+
+#ifdef TWO_I2C
+    Wire1.begin(SDA1, SCL1);
+    Wire1.setClock(400000);
+#endif
+
 #elif I2CDEV_IMPLEMENTATION == I2CDEV_BUILTIN_FASTWIRE
     Fastwire::setup(400, true);
 #endif
@@ -198,8 +216,6 @@ void setup() {
 
     // initialize device
 //    Serial.println(F("Initializing I2C devices..."));
-    mpu.initialize();
-
     hmc.init();
 
     // verify connection
@@ -212,60 +228,61 @@ void setup() {
     while (!Serial.available());                 // wait for data
     while (Serial.available() && Serial.read()); // empty buffer again
 
-    // load and configure the DMP
-//    Serial.println(F("Initializing DMP..."));
-    devStatus = mpu.dmpInitialize();
+    // Initialize MPUs
+    for (int i = 0; i < mpuCount; i++) {
+        MPU6050 &mpu = (mpuArray[i]);
+        mpu.initialize();
+        devStatus = mpuArray[i].dmpInitialize();
 
-    // supply your own gyro offsets here, scaled for min sensitivity
+        // supply your own gyro offsets here, scaled for min sensitivity
 #ifdef SENSOR_1
-    mpu.setXAccelOffset(-909);
-    mpu.setYAccelOffset(-2);
-    mpu.setZAccelOffset(1062);
-    mpu.setXGyroOffset(72);
-    mpu.setYGyroOffset(58);
-    mpu.setZGyroOffset(-10);
+        mpu.setXAccelOffset(-909);
+        mpu.setYAccelOffset(-2);
+        mpu.setZAccelOffset(1062);
+        mpu.setXGyroOffset(72);
+        mpu.setYGyroOffset(58);
+        mpu.setZGyroOffset(-10);
 #endif
 #ifdef SENSOR_2
-    mpu.setXAccelOffset(-3874);
-    mpu.setYAccelOffset(13);
-    mpu.setZAccelOffset(1058);
-    mpu.setXGyroOffset(-5);
-    mpu.setYGyroOffset(-17);
-    mpu.setZGyroOffset(-24);
+        mpu.setXAccelOffset(-3874);
+        mpu.setYAccelOffset(13);
+        mpu.setZAccelOffset(1058);
+        mpu.setXGyroOffset(-5);
+        mpu.setYGyroOffset(-17);
+        mpu.setZGyroOffset(-24);
 #endif
+        // Set Low Pass Filter to 10Hz
+        mpu.setDLPFMode(MPU6050_DLPF_BW_10);
 
-    // Set Low Pass Filter to 10Hz
-    mpu.setDLPFMode(MPU6050_DLPF_BW_10);
-
-    // Record starting time to delay Kalman filtering
-    timer = millis();
-
-    // make sure it worked (returns 0 if so)
-    if (devStatus == 0) {
-        // Calibration Time: generate offsets and calibrate our MPU6050
+        if (devStatus == 0) {
+            // Calibration Time: generate offsets and calibrate our MPU6050
 //        mpu.CalibrateAccel(6);
 //        mpu.CalibrateGyro(6);
 //        mpu.PrintActiveOffsets();
 
-        // turn on the DMP, now that it's ready
-//        Serial.println(F("Enabling DMP..."));
-        mpu.setDMPEnabled(true);
+            // turn on the DMP, now that it's ready
+//            Serial.println(F("Enabling DMP..."));
+            mpu.setDMPEnabled(true);
 
-        // set our DMP Ready flag so the main loop() function knows it's okay to use it
+            // set our DMP Ready flag so the main loop() function knows it's okay to use it
 //        Serial.println(F("DMP ready! Waiting for first interrupt..."));
-        dmpReady = true;
+            dmpReady[i] = true;
 
-        // get expected DMP packet size for later comparison
-        packetSize = mpu.dmpGetFIFOPacketSize();
-    } else {
-        // ERROR!
-        // 1 = initial memory load failed
-        // 2 = DMP configuration updates failed
-        // (if it's going to break, usually the code will be 1)
-//        Serial.print(F("DMP Initialization failed (code "));
-//        Serial.print(devStatus);
-//        Serial.println(F(")"));
+            // get expected DMP packet size for later comparison
+            packetSize = mpu.dmpGetFIFOPacketSize();
+        } else {
+            // ERROR!
+            // 1 = initial memory load failed
+            // 2 = DMP configuration updates failed
+            // (if it's going to break, usually the code will be 1)
+            Serial.print(F("DMP Initialization failed (code "));
+            Serial.print(devStatus);
+            Serial.println(F(")"));
+        }
     }
+
+    // Record starting time to delay Kalman filtering
+    timer = millis();
 
 #ifdef LED_PIN
     // configure LED for output
@@ -282,14 +299,10 @@ void setup() {
 // ===                    MAIN PROGRAM LOOP                     ===
 // ================================================================
 
-void loop() {
-    // if programming failed, don't try to do anything
-    if (!dmpReady) return;
-
-    while (Serial.available()<=0 || Serial.read() != 'g');
+void mpu_print(MPU6050& mpu) {
 
     // read a packet from FIFO
-    if (mpu.dmpGetCurrentFIFOPacket(fifoBuffer)) { // Get the Latest packet 
+    if (mpu.dmpGetCurrentFIFOPacket(fifoBuffer)) { // Get the Latest packet
 #ifdef OUTPUT_READABLE_QUATERNION
         // display quaternion values in easy matrix form: w x y z
         mpu.dmpGetQuaternion(&q, fifoBuffer);
@@ -394,9 +407,12 @@ void loop() {
             kalmanPredictions[1] = aaWorld.y;
             kalmanPredictions[2] = aaWorld.z;
         } else {
-            kalmanPredictions[0] = kf1.update(aaWorld.x);
-            kalmanPredictions[1] = kf2.update(aaWorld.y);
-            kalmanPredictions[2] = kf3.update(aaWorld.z);
+            kalmanPredictions[0] = aaWorld.x;
+            kalmanPredictions[1] = aaWorld.y;
+            kalmanPredictions[2] = aaWorld.z;
+//            kalmanPredictions[0] = kf1.update(aaWorld.x);
+//            kalmanPredictions[1] = kf2.update(aaWorld.y);
+//            kalmanPredictions[2] = kf3.update(aaWorld.z);
         }
 
         SerialPrintTitle("\naworld");
@@ -441,5 +457,23 @@ void loop() {
         Serial.print("\t");
         Serial.println(hmc.getZ());
 #endif
+    }
+}
+
+void loop() {
+    // if programming failed, don't try to do anything
+//    if (!dmpReady) return;
+
+    while (Serial.available() <= 0);
+
+    char c = Serial.read();
+    if (c == 'g') {
+        mpu_print(mpuArray[0]);
+    } else if (c == 'f') {
+        mpu_print(mpuArray[1]);
+    } else if (c == 'd') {
+        mpu_print(mpuArray[2]);
+    } else if (c == 's') {
+        mpu_print(mpuArray[3]);
     }
 }
