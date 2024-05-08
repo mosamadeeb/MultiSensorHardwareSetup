@@ -45,7 +45,53 @@ THE SOFTWARE.
 */
 
 #include <Arduino.h>
-//#include "avr8-stub.h"
+#include <vector>
+
+#include <ArduinoJson.h>
+
+bool deviceConnected = false;
+bool oldDeviceConnected = false;
+
+// See the following for generating UUIDs:
+// https://www.uuidgenerator.net/
+#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+
+#ifdef ADAFRUIT
+#include <bluefruit.h>
+
+BLEService        service(SERVICE_UUID);
+BLECharacteristic characteristic(CHARACTERISTIC_UUID);
+
+void connect_callback(uint16_t conn_handle) {
+    deviceConnected = true;
+//    Serial.println("Connected!");
+}
+
+void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
+    deviceConnected = false;
+//    Serial.println("Disconnected!");
+}
+
+#else
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLE2902.h>
+
+BLEServer* pServer = NULL;
+BLECharacteristic* pCharacteristic = NULL;
+
+class MyServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* server) {
+        deviceConnected = true;
+        BLEDevice::startAdvertising();
+    };
+
+    void onDisconnect(BLEServer* server) {
+        deviceConnected = false;
+    }
+};
+#endif
 
 // I2Cdev and MPU6050 must be installed as libraries, or else the .cpp/.h files
 // for both classes must be in the include path of your project
@@ -63,7 +109,8 @@ TrivialKalmanFilter<float> kf3(4.7e-3, 5e-4);
 
 unsigned long timer = 0;
 bool kalmanSet = false;
-float kalmanPredictions[3] = {0,0,0};
+std::vector<float> kalmanPredictions = { 0, 0, 0 };
+//float kalmanPredictions[3] = {0,0,0};
 
 // Arduino Wire library is required if I2Cdev I2CDEV_ARDUINO_WIRE implementation
 // is used in I2Cdev.h
@@ -84,11 +131,17 @@ const int mpuCount = 1;
 // AD0 low = 0x68 (default for SparkFun breakout and InvenSense evaluation board)
 // AD0 high = 0x69
 
-MPU6050 mpuArray[4] = {
+MPU6050 mpuArray[mpuCount] = {
         MPU6050(MPU6050_ADDRESS_AD0_LOW, &Wire),
+#if MPU_COUNT > 1
         MPU6050(MPU6050_ADDRESS_AD0_HIGH, &Wire),
+#endif
+#if MPU_COUNT > 2
         MPU6050(MPU6050_ADDRESS_AD0_LOW, &Wire1),
+#endif
+#if MPU_COUNT > 3
         MPU6050(MPU6050_ADDRESS_AD0_HIGH, &Wire1)
+#endif
 };
 
 QMC5883LCompass hmc;
@@ -191,6 +244,9 @@ void inline SerialPrintTitle(const char* text) {
 void setup() {
     // join I2C bus (I2Cdev library doesn't do this automatically)
 #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
+#ifdef SDA0
+    Wire.setPins(SDA0, SCL0);
+#endif
     Wire.begin();
     Wire.setClock(400000); // 400kHz I2C clock. Comment this line if having compilation difficulties
 
@@ -213,6 +269,83 @@ void setup() {
     // the baud timing being too misaligned with processor ticks. You must use
     // 38400 or slower in these cases, or use some kind of external separate
     // crystal solution for the UART timer.
+
+#ifdef ADAFRUIT
+
+    Bluefruit.begin();
+    Bluefruit.setTxPower(4);    // Check bluefruit.h for supported values
+
+    Bluefruit.Periph.setConnectCallback(connect_callback);
+    Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
+
+    // Initialize service before any characteristics
+    service.begin();
+
+    characteristic.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ | CHR_PROPS_WRITE | CHR_PROPS_INDICATE);
+    characteristic.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
+    characteristic.setMaxLen(128);
+    characteristic.begin();
+
+    // This descriptor is included by default, no need to add it.
+//    characteristic.addDescriptor(BLE_UUID_DESCRIPTOR_CLIENT_CHAR_CONFIG, "", 0);
+
+    // Advertising packet
+    Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
+    Bluefruit.Advertising.addTxPower();
+
+    Bluefruit.Advertising.addService(service);
+
+    Bluefruit.Advertising.addName();
+
+
+    /* Start Advertising
+     * - Enable auto advertising if disconnected
+     * - Interval:  fast mode = 20 ms, slow mode = 152.5 ms
+     * - Timeout for fast mode is 30 seconds
+     * - Start(timeout) with timeout = 0 will advertise forever (until connected)
+     *
+     * For recommended advertising interval
+     * https://developer.apple.com/library/content/qa/qa1931/_index.html
+     */
+//    Bluefruit.Advertising.setStopCallback(adv_stop_callback);
+    Bluefruit.Advertising.restartOnDisconnect(true);
+    Bluefruit.Advertising.setInterval(32, 244);    // in units of 0.625 ms
+    Bluefruit.Advertising.setFastTimeout(30);      // number of seconds in fast mode
+    Bluefruit.Advertising.start();      // Stop advertising entirely after ADV_TIMEOUT seconds
+#else
+    BLEDevice::init("ESP32-2");
+
+    // Create the BLE Server
+    pServer = BLEDevice::createServer();
+    pServer->setCallbacks(new MyServerCallbacks());
+
+    // Create the BLE Service
+    BLEService *pService = pServer->createService(SERVICE_UUID);
+
+    // Create a BLE Characteristic
+    pCharacteristic = pService->createCharacteristic(
+            CHARACTERISTIC_UUID,
+            BLECharacteristic::PROPERTY_READ   |
+            BLECharacteristic::PROPERTY_WRITE  |
+            BLECharacteristic::PROPERTY_NOTIFY |
+            BLECharacteristic::PROPERTY_INDICATE
+    );
+
+    // https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.descriptor.gatt.client_characteristic_configuration.xml
+    // Create a BLE Descriptor
+    pCharacteristic->addDescriptor(new BLE2902());
+
+    // Start the service
+    pService->start();
+
+    // Start advertising
+    BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+    pAdvertising->addServiceUUID(SERVICE_UUID);
+    pAdvertising->setScanResponse(false);
+    pAdvertising->setMinPreferred(0x0);  // set value to 0x00 to not advertise this parameter
+    BLEDevice::startAdvertising();
+//    Serial.println("Waiting a client connection to notify...");
+#endif
 
     // initialize device
 //    Serial.println(F("Initializing I2C devices..."));
@@ -299,7 +432,8 @@ void setup() {
 // ===                    MAIN PROGRAM LOOP                     ===
 // ================================================================
 
-void mpu_print(MPU6050& mpu) {
+JsonDocument mpu_print(MPU6050& mpu) {
+    JsonDocument doc;
 
     // read a packet from FIFO
     if (mpu.dmpGetCurrentFIFOPacket(fifoBuffer)) { // Get the Latest packet
@@ -415,6 +549,11 @@ void mpu_print(MPU6050& mpu) {
 //            kalmanPredictions[2] = kf3.update(aaWorld.z);
         }
 
+        doc["aworld"] = JsonDocument();
+        doc["aworld"].add(kalmanPredictions[0]);
+        doc["aworld"].add(kalmanPredictions[1]);
+        doc["aworld"].add(kalmanPredictions[2]);
+
         SerialPrintTitle("\naworld");
         Serial.print(kalmanPredictions[0]);
         Serial.print("\t");
@@ -458,22 +597,61 @@ void mpu_print(MPU6050& mpu) {
         Serial.println(hmc.getZ());
 #endif
     }
+
+    return doc;
 }
 
 void loop() {
-    // if programming failed, don't try to do anything
-//    if (!dmpReady) return;
-
     while (Serial.available() <= 0);
 
+    JsonDocument doc;
+
     char c = Serial.read();
-    if (c == 'g') {
-        mpu_print(mpuArray[0]);
-    } else if (c == 'f') {
-        mpu_print(mpuArray[1]);
-    } else if (c == 'd') {
-        mpu_print(mpuArray[2]);
-    } else if (c == 's') {
-        mpu_print(mpuArray[3]);
+    if (c == 'g' && dmpReady[0]) {
+        doc["mpu1"] = mpu_print(mpuArray[0]);
+    } else if (c == 'f' && dmpReady[1]) {
+        doc["mpu2"] = mpu_print(mpuArray[1]);
+    } else if (c == 'd' && dmpReady[2]) {
+        doc["mpu3"] = mpu_print(mpuArray[2]);
+    } else if (c == 's' && dmpReady[3]) {
+        doc["mpu4"] = mpu_print(mpuArray[3]);
+    }
+
+    if (deviceConnected) {
+        if (doc.size() != 0) {
+            doc["timestamp"] = millis();
+
+            std::string values;
+            serializeMsgPack(doc, values);
+
+            size_t size = values.size();
+            if (size > 512) {
+                Serial.println("WARNING: MessagePack size exceeds 512 bytes");
+            }
+
+#ifdef ADAFRUIT
+            characteristic.write(values.c_str(), size);
+#else
+            pCharacteristic->setValue(values);
+#endif
+            Serial.println(values.c_str());
+        }
+        delay(33); // bluetooth stack will go into congestion, if too many packets are sent, in 6 hours test i was able to go as low as 3ms
+    }
+    // disconnecting
+    if (!deviceConnected && oldDeviceConnected) {
+        delay(500); // give the bluetooth stack the chance to get things ready
+#ifdef ADAFRUIT
+
+#else
+        pServer->startAdvertising(); // restart advertising
+#endif
+        Serial.println("start advertising");
+        oldDeviceConnected = deviceConnected;
+    }
+    // connecting
+    if (deviceConnected && !oldDeviceConnected) {
+        // do stuff here on connecting
+        oldDeviceConnected = deviceConnected;
     }
 }
