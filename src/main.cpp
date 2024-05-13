@@ -167,6 +167,9 @@ QMC5883LCompass hmc;
 // choose sensor number for calibration values
 #define SENSOR_2
 
+// when defined, no serial connection will be attempted.
+#define NO_SERIAL
+
 // uncomment "SERIAL_PRINT_TITLE" if you want to print the values without the titles
 //#define SERIAL_PRINT_TITLE
 
@@ -260,7 +263,6 @@ void setup() {
 #endif
 
 #ifdef ADAFRUIT
-
     Bluefruit.begin();
     Bluefruit.setTxPower(4);    // Check bluefruit.h for supported values
 
@@ -337,8 +339,7 @@ void setup() {
 #endif
 
     // initialize serial communication after bluetooth
-    // (115200 chosen because it is required for Teapot Demo output, but it's
-    // really up to you depending on your project)
+#ifndef NO_SERIAL
     Serial.begin(115200);
     while (!Serial); // wait for Leonardo enumeration, others continue immediately
     // NOTE: 8MHz or slower host processors, like the Teensy @ 3.3V or Arduino
@@ -346,6 +347,7 @@ void setup() {
     // the baud timing being too misaligned with processor ticks. You must use
     // 38400 or slower in these cases, or use some kind of external separate
     // crystal solution for the UART timer.
+#endif
 
     // initialize device
 //    Serial.println(F("Initializing I2C devices..."));
@@ -355,11 +357,13 @@ void setup() {
 //    Serial.println(F("Testing device connections..."));
 //    Serial.println(mpu.testConnection() ? F("MPU6050 connection successful") : F("MPU6050 connection failed"));
 
+#ifndef NO_SERIAL
     // wait for ready
 //    Serial.println(F("\nSend any character to begin DMP programming and demo: "));
     while (Serial.available() && Serial.read()); // empty buffer
     while (!Serial.available());                 // wait for data
     while (Serial.available() && Serial.read()); // empty buffer again
+#endif
 
     // Initialize MPUs
     for (int i = 0; i < mpuCount; i++) {
@@ -408,9 +412,11 @@ void setup() {
             // 1 = initial memory load failed
             // 2 = DMP configuration updates failed
             // (if it's going to break, usually the code will be 1)
+#ifndef NO_SERIAL
             Serial.print(F("DMP Initialization failed (code "));
             Serial.print(devStatus);
             Serial.println(F(")"));
+#endif
         }
     }
 
@@ -554,12 +560,14 @@ JsonDocument mpu_print(MPU6050& mpu) {
         doc["aworld"].add(kalmanPredictions[1]);
         doc["aworld"].add(kalmanPredictions[2]);
 
+#ifndef NO_SERIAL
         SerialPrintTitle("\naworld");
         Serial.print(kalmanPredictions[0]);
         Serial.print("\t");
         Serial.print(kalmanPredictions[1]);
         Serial.print("\t");
         Serial.println(kalmanPredictions[2]);
+#endif
 #ifdef OUTPUT_REALACC
         SerialPrintTitle("areal");
         Serial.print(aaReal.x);
@@ -602,9 +610,26 @@ JsonDocument mpu_print(MPU6050& mpu) {
 }
 
 void loop() {
-    while (Serial.available() <= 0);
-
     JsonDocument doc;
+
+#ifdef NO_SERIAL
+    // 33ms delay between each sensor reading
+    delay(33);
+
+    if (dmpReady[0]) {
+        doc["mpu1"] = mpu_print(mpuArray[0]);
+    }
+    if (dmpReady[1]) {
+        doc["mpu2"] = mpu_print(mpuArray[1]);
+    }
+    if (dmpReady[2]) {
+        doc["mpu3"] = mpu_print(mpuArray[2]);
+    }
+    if (dmpReady[3]) {
+        doc["mpu4"] = mpu_print(mpuArray[3]);
+    }
+#else
+    while (Serial.available() <= 0);
 
     char c = Serial.read();
     if (c == 'g' && dmpReady[0]) {
@@ -616,6 +641,7 @@ void loop() {
     } else if (c == 's' && dmpReady[3]) {
         doc["mpu4"] = mpu_print(mpuArray[3]);
     }
+#endif
 
     if (deviceConnected) {
         if (doc.size() != 0) {
@@ -626,7 +652,9 @@ void loop() {
 
             size_t size = values.size();
             if (size > 512) {
+#ifndef NO_SERIAL
                 Serial.println("WARNING: MessagePack size exceeds 512 bytes");
+#endif
             }
 
 #ifdef ADAFRUIT
@@ -634,7 +662,9 @@ void loop() {
 #else
             pCharacteristic->setValue(values);
 #endif
+#ifndef NO_SERIAL
             Serial.println(values.c_str());
+#endif
         }
         delay(33); // bluetooth stack will go into congestion, if too many packets are sent, in 6 hours test i was able to go as low as 3ms
     }
@@ -646,7 +676,9 @@ void loop() {
 #else
         pServer->startAdvertising(); // restart advertising
 #endif
+#ifndef NO_SERIAL
         Serial.println("start advertising");
+#endif
         oldDeviceConnected = deviceConnected;
     }
     // connecting
