@@ -1,25 +1,3 @@
-// I2C device class (I2Cdev) demonstration Arduino sketch for MPU6050 class using DMP (MotionApps v2.0)
-// 6/21/2012 by Jeff Rowberg <jeff@rowberg.net>
-// Updates should (hopefully) always be available at https://github.com/jrowberg/i2cdevlib
-//
-// Changelog:
-//      2019-07-08 - Added Auto Calibration and offset generator
-//		   - and altered FIFO retrieval sequence to avoid using blocking code
-//      2016-04-18 - Eliminated a potential infinite loop
-//      2013-05-08 - added seamless Fastwire support
-//                 - added note about gyro calibration
-//      2012-06-21 - added note about Arduino 1.0.1 + Leonardo compatibility error
-//      2012-06-20 - improved FIFO overflow handling and simplified read process
-//      2012-06-19 - completely rearranged DMP initialization code and simplification
-//      2012-06-13 - pull gyro and accel data from FIFO packet instead of reading directly
-//      2012-06-09 - fix broken FIFO read sequence and change interrupt detection to RISING
-//      2012-06-05 - add gravity-compensated initial reference frame acceleration output
-//                 - add 3D math helper file to DMP6 example sketch
-//                 - add Euler output and Yaw/Pitch/Roll output formats
-//      2012-06-04 - remove accel offset clearing for better results (thanks Sungon Lee)
-//      2012-06-01 - fixed gyro sensitivity to be 2000 deg/sec instead of 250
-//      2012-05-30 - basic DMP initialization working
-
 /* ============================================
 I2Cdev device library code is placed under the MIT license
 Copyright (c) 2012 Jeff Rowberg
@@ -100,8 +78,8 @@ class MyServerCallbacks: public BLEServerCallbacks {
 #include "MPU6050_6Axis_MotionApps20.h"
 #include "QMC5883LCompass.h"
 
+#include "calibration_data.h"
 #include "TrivialKalmanVector.h"
-
 #include "FilteredMPU.h"
 #include "FilteredQMC.h"
 
@@ -190,80 +168,14 @@ FilteredQMC qmcArray[qmcCount] = {
 #endif
 };
 
-/* =========================================================================
-   NOTE: In addition to connection 3.3v, GND, SDA, and SCL, this sketch
-   depends on the MPU-6050's INT pin being connected to the Arduino's
-   external interrupt #0 pin. On the Arduino Uno and Mega 2560, this is
-   digital I/O pin 2.
- * ========================================================================= */
-
-/* =========================================================================
-   NOTE: Arduino v1.0.1 with the Leonardo board generates a compile error
-   when using Serial.write(buf, len). The Teapot output uses this method.
-   The solution requires a modification to the Arduino USBAPI.h file, which
-   is fortunately simple, but annoying. This will be fixed in the next IDE
-   release. For more info, see these links:
-
-   http://arduino.cc/forum/index.php/topic,109987.0.html
-   http://code.google.com/p/arduino/issues/detail?id=958
- * ========================================================================= */
-
-// choose sensor number for calibration values
-#define SENSOR_2
-
 // when defined, no serial connection will be attempted.
 #define NO_SERIAL
 
 // uncomment "SERIAL_PRINT_TITLE" if you want to print the values without the titles
 //#define SERIAL_PRINT_TITLE
 
-// uncomment "OUTPUT_READABLE_QUATERNION" if you want to see the actual
-// quaternion components in a [w, x, y, z] format (not best for parsing
-// on a remote host such as Processing or something though)
-//#define OUTPUT_READABLE_QUATERNION
-
-// uncomment "OUTPUT_READABLE_EULER" if you want to see Euler angles
-// (in degrees) calculated from the quaternions coming from the FIFO.
-// Note that Euler angles suffer from gimbal lock (for more info, see
-// http://en.wikipedia.org/wiki/Gimbal_lock)
-//#define OUTPUT_READABLE_EULER
-
-// uncomment "OUTPUT_READABLE_YAWPITCHROLL" if you want to see the yaw/
-// pitch/roll angles (in degrees) calculated from the quaternions coming
-// from the FIFO. Note this also requires gravity vector calculations.
-// Also note that yaw/pitch/roll angles suffer from gimbal lock (for
-// more info, see: http://en.wikipedia.org/wiki/Gimbal_lock)
-//#define OUTPUT_READABLE_YAWPITCHROLL
-
-// uncomment "OUTPUT_READABLE_REALACCEL" if you want to see acceleration
-// components with gravity removed. This acceleration reference frame is
-// not compensated for orientation, so +X is always +X according to the
-// sensor, just without the effects of gravity. If you want acceleration
-// compensated for orientation, us OUTPUT_READABLE_WORLDACCEL instead.
-//#define OUTPUT_READABLE_REALACCEL
-
-//#define OUTPUT_READABLE_GYRO
-
-// uncomment "OUTPUT_READABLE_WORLDACCEL" if you want to see acceleration
-// components with gravity removed and adjusted for the world frame of
-// reference (yaw is relative to initial orientation, since no magnetometer
-// is present in this case). Could be quite handy in some cases.
-#define OUTPUT_READABLE_WORLDACCEL
-
-// uncomment these to print the respective vectors
-// applies for OUTPUT_READABLE_REALACCEL and OUTPUT_READABLE_WORLDACCEL
-//#define OUTPUT_REALACC
-//#define OUTPUT_ACC
-//#define OUTPUT_GRAVITY
-
-//#define OUTPUT_READABLE_MAGNET
-
-bool blinkState = false;
 // MPU control/status vars
 bool dmpReady[4] = { false, false, false, false };  // set true if DMP init was successful
-uint8_t devStatus;      // return status after each device operation (0 = success, !0 = error)
-uint16_t packetSize;    // expected DMP packet size (default is 42 bytes)
-uint16_t fifoCount;     // count of all bytes currently in FIFO
 uint8_t fifoBuffer[64]; // FIFO storage buffer
 
 // orientation/motion vars
@@ -274,7 +186,6 @@ VectorInt16 aaWorld;    // [x, y, z]            world-frame accel sensor measure
 VectorFloat gravity;    // [x, y, z]            gravity vector
 VectorInt16 gyro;
 float euler[3];         // [psi, theta, phi]    Euler angle container
-float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
 
 void inline SerialPrintTitle(const char* text) {
 #ifdef SERIAL_PRINT_TITLE
@@ -291,6 +202,7 @@ std::vector<float> inline GetQuaternion(Quaternion& q) {
     return {q.w, q.x, q.y, q.z};
 }
 
+#define STRING(s) #s
 
 // ================================================================
 // ===                      INITIAL SETUP                       ===
@@ -316,6 +228,7 @@ void setup() {
 
 #ifdef ADAFRUIT
     Bluefruit.begin();
+    Bluefruit.setName(STRING(DEVICE_NAME));
     Bluefruit.setTxPower(4);    // Check bluefruit.h for supported values
 
     Bluefruit.Periph.setConnectCallback(connect_callback);
@@ -326,7 +239,7 @@ void setup() {
 
     characteristic.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ | CHR_PROPS_WRITE | CHR_PROPS_INDICATE);
     characteristic.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
-    characteristic.setMaxLen(128);
+    characteristic.setMaxLen(242);
     characteristic.begin();
 
     // This descriptor is included by default, no need to add it.
@@ -356,7 +269,7 @@ void setup() {
     Bluefruit.Advertising.setFastTimeout(30);      // number of seconds in fast mode
     Bluefruit.Advertising.start();      // Stop advertising entirely after ADV_TIMEOUT seconds
 #else
-    BLEDevice::init("ESP32-2");
+    BLEDevice::init(STRING(DEVICE_NAME));
 
     // Create the BLE Server
     pServer = BLEDevice::createServer();
@@ -413,9 +326,12 @@ void setup() {
     for (int i = 0; i < mpuCount; i++) {
         MPU6050 &mpu = (mpuArray[i].mpu);
         mpu.initialize();
-        devStatus = mpu.dmpInitialize();
+
+        // return status after device operation (0 = success, !0 = error)
+        int devStatus = mpu.dmpInitialize();
 
         // supply your own gyro offsets here, scaled for min sensitivity
+        calibrateMPU(mpu, i);
 #ifdef SENSOR_1
         mpu.setXAccelOffset(-909);
         mpu.setYAccelOffset(-2);
@@ -448,9 +364,6 @@ void setup() {
             // set our DMP Ready flag so the main loop() function knows it's okay to use it
 //        Serial.println(F("DMP ready! Waiting for first interrupt..."));
             dmpReady[i] = true;
-
-            // get expected DMP packet size for later comparison
-            packetSize = mpu.dmpGetFIFOPacketSize();
         } else {
             // ERROR!
             // 1 = initial memory load failed
@@ -467,27 +380,15 @@ void setup() {
     // Initialize QMCs
     for (int i = 0; i < qmcCount; i++) {
         qmcArray[i].qmc.init();
+        calibrateQMC(qmcArray[i].qmc, i);
     }
 
     // Record starting time to delay Kalman filtering
     timer = millis();
-
-#ifdef LED_PIN
-    // configure LED for output
-    pinMode(LED_PIN, OUTPUT);
-
-    // Turn on LED to indicate that filter is not working
-    digitalWrite(LED_PIN, true);
-#endif
 }
 
 
-
-// ================================================================
-// ===                    MAIN PROGRAM LOOP                     ===
-// ================================================================
-
-JsonDocument mpu_print(FilteredMPU& filtered) {
+JsonDocument mpu_read(FilteredMPU& filtered) {
     JsonDocument doc;
 
     // read a packet from FIFO
@@ -501,10 +402,10 @@ JsonDocument mpu_print(FilteredMPU& filtered) {
             predictedQuaternion = filtered.quat.update(predictedQuaternion);
 
         doc["q"] = JsonDocument();
-        doc["q"].add(predictedQuaternion[0]);
-        doc["q"].add(predictedQuaternion[1]);
-        doc["q"].add(predictedQuaternion[2]);
-        doc["q"].add(predictedQuaternion[3]);
+        doc["q"].add(predictedQuaternion[0] * 1000);
+        doc["q"].add(predictedQuaternion[1] * 1000);
+        doc["q"].add(predictedQuaternion[2] * 1000);
+        doc["q"].add(predictedQuaternion[3] * 1000);
 
 #ifdef OUTPUT_READABLE_QUATERNION
         SerialPrintTitle("quat");
@@ -526,9 +427,9 @@ JsonDocument mpu_print(FilteredMPU& filtered) {
             predictedEuler = filtered.euler.update(predictedEuler);
 
         doc["e"] = JsonDocument();
-        doc["e"].add(predictedEuler[0]);
-        doc["e"].add(predictedEuler[1]);
-        doc["e"].add(predictedEuler[2]);
+        doc["e"].add(predictedEuler[0] * 180/M_PI);
+        doc["e"].add(predictedEuler[1] * 180/M_PI);
+        doc["e"].add(predictedEuler[2] * 180/M_PI);
 
 #ifdef OUTPUT_READABLE_EULER
         SerialPrintTitle("euler");
@@ -559,8 +460,9 @@ JsonDocument mpu_print(FilteredMPU& filtered) {
         Serial.println(gyro.z);
 #endif
 
-        // display initial world-frame acceleration, adjusted to remove gravity
-        // and rotated based on known orientation from quaternion
+        // acceleration components with gravity removed and adjusted for the world frame of
+        // reference (yaw is relative to initial orientation, since no magnetometer
+        // is present in this case).
         filtered.mpu.dmpGetQuaternion(&q, fifoBuffer);
         filtered.mpu.dmpGetAccel(&aa, fifoBuffer);
         filtered.mpu.dmpGetGravity(&gravity, &q);
@@ -580,7 +482,7 @@ JsonDocument mpu_print(FilteredMPU& filtered) {
     return doc;
 }
 
-JsonDocument qmc_print(FilteredQMC& filtered) {
+JsonDocument qmc_read(FilteredQMC& filtered) {
     JsonDocument doc;
 
     filtered.qmc.read();
@@ -596,6 +498,10 @@ JsonDocument qmc_print(FilteredQMC& filtered) {
 
     return doc;
 }
+
+// ================================================================
+// ===                    MAIN PROGRAM LOOP                     ===
+// ================================================================
 
 void loop() {
     JsonDocument doc;
@@ -616,13 +522,13 @@ void loop() {
 
     for (int i = 0; i < mpuCount; i++) {
         if (dmpReady[i]) {
-            mpu.add(mpu_print(mpuArray[i]));
+            mpu.add(mpu_read(mpuArray[i]));
         }
     }
 
     for (int i = 0; i < qmcCount; i++) {
         if (dmpReady[i]) {
-            qmc.add(qmc_print(qmcArray[i]));
+            qmc.add(qmc_read(qmcArray[i]));
         }
     }
 #else
@@ -642,15 +548,15 @@ void loop() {
 
     if (deviceConnected) {
         if (doc.size() != 0) {
-            doc["timestamp"] = millis();
+            doc["time"] = millis();
 
             std::string values;
             serializeMsgPack(doc, values);
 
             size_t size = values.size();
-            if (size > 512) {
+            if (size > 242) {
 #ifndef NO_SERIAL
-                Serial.println("WARNING: MessagePack size exceeds 512 bytes");
+                Serial.println("WARNING: MessagePack size exceeds 242 bytes");
 #endif
             }
 
