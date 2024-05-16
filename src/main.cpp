@@ -98,19 +98,20 @@ class MyServerCallbacks: public BLEServerCallbacks {
 #include "I2Cdev.h"
 
 #include "MPU6050_6Axis_MotionApps20.h"
-//#include "MPU6050.h" // not necessary if using MotionApps include file
 #include "QMC5883LCompass.h"
 
-#include <TrivialKalmanFilter.h>
+#include "TrivialKalmanVector.h"
 
-TrivialKalmanFilter<float> kf1(4.7e-3, 5e-4);
-TrivialKalmanFilter<float> kf2(4.7e-3, 5e-4);
-TrivialKalmanFilter<float> kf3(4.7e-3, 5e-4);
+#include "FilteredMPU.h"
+#include "FilteredQMC.h"
+
+// Delay initializing the filter to omit extreme data readings
+#define KALMAN_DELAY 5000
+#define KALMAN_RK 4.7e-3
+#define KALMAN_QK 5e-4
 
 unsigned long timer = 0;
 bool kalmanSet = false;
-std::vector<float> kalmanPredictions = { 0, 0, 0 };
-//float kalmanPredictions[3] = {0,0,0};
 
 // Arduino Wire library is required if I2Cdev I2CDEV_ARDUINO_WIRE implementation
 // is used in I2Cdev.h
@@ -137,25 +138,55 @@ const int qmcCount = 0;
 // AD0 low = 0x68 (default for SparkFun breakout and InvenSense evaluation board)
 // AD0 high = 0x69
 
-MPU6050 mpuArray[mpuCount] = {
+FilteredMPU mpuArray[mpuCount] = {
+    {
         MPU6050(MPU6050_ADDRESS_AD0_LOW, &Wire),
+        TrivialKalmanVector<float>(3, KALMAN_RK, KALMAN_QK),
+        TrivialKalmanVector<float>(3, KALMAN_RK, KALMAN_QK),
+        TrivialKalmanVector<float>(3, KALMAN_RK, KALMAN_QK),
+        TrivialKalmanVector<float>(4, KALMAN_RK, KALMAN_QK),
+    },
 #if MPU_COUNT > 1
+    {
         MPU6050(MPU6050_ADDRESS_AD0_HIGH, &Wire),
+        TrivialKalmanVector<float>(3, KALMAN_RK, KALMAN_QK),
+        TrivialKalmanVector<float>(3, KALMAN_RK, KALMAN_QK),
+        TrivialKalmanVector<float>(3, KALMAN_RK, KALMAN_QK),
+        TrivialKalmanVector<float>(4, KALMAN_RK, KALMAN_QK),
+    },
 #endif
 #if MPU_COUNT > 2
+    {
         MPU6050(MPU6050_ADDRESS_AD0_LOW, &Wire1),
+        TrivialKalmanVector<float>(3, KALMAN_RK, KALMAN_QK),
+        TrivialKalmanVector<float>(3, KALMAN_RK, KALMAN_QK),
+        TrivialKalmanVector<float>(3, KALMAN_RK, KALMAN_QK),
+        TrivialKalmanVector<float>(4, KALMAN_RK, KALMAN_QK),
+    },
 #endif
 #if MPU_COUNT > 3
+    {
         MPU6050(MPU6050_ADDRESS_AD0_HIGH, &Wire1),
+        TrivialKalmanVector<float>(3, KALMAN_RK, KALMAN_QK),
+        TrivialKalmanVector<float>(3, KALMAN_RK, KALMAN_QK),
+        TrivialKalmanVector<float>(3, KALMAN_RK, KALMAN_QK),
+        TrivialKalmanVector<float>(4, KALMAN_RK, KALMAN_QK),
+    },
 #endif
 };
 
-QMC5883LCompass qmcArray[qmcCount] = {
+FilteredQMC qmcArray[qmcCount] = {
 #if QMC_COUNT > 0
+    {
         QMC5883LCompass(&Wire),
+        TrivialKalmanVector<float>(3, KALMAN_RK, KALMAN_QK),
+    },
 #endif
 #if QMC_COUNT > 1
+    {
         QMC5883LCompass(&Wire1),
+        TrivialKalmanVector<float>(3, KALMAN_RK, KALMAN_QK),
+    },
 #endif
 };
 
@@ -250,6 +281,14 @@ void inline SerialPrintTitle(const char* text) {
     Serial.print(text);
     Serial.print("\t");
 #endif
+}
+
+std::vector<float> inline GetVectorInt16(VectorInt16& v) {
+    return {(float)v.x, (float)v.y, (float)v.z};
+}
+
+std::vector<float> inline GetQuaternion(Quaternion& q) {
+    return {q.w, q.x, q.y, q.z};
 }
 
 
@@ -372,9 +411,9 @@ void setup() {
 
     // Initialize MPUs
     for (int i = 0; i < mpuCount; i++) {
-        MPU6050 &mpu = (mpuArray[i]);
+        MPU6050 &mpu = (mpuArray[i].mpu);
         mpu.initialize();
-        devStatus = mpuArray[i].dmpInitialize();
+        devStatus = mpu.dmpInitialize();
 
         // supply your own gyro offsets here, scaled for min sensitivity
 #ifdef SENSOR_1
@@ -427,7 +466,7 @@ void setup() {
 
     // Initialize QMCs
     for (int i = 0; i < qmcCount; i++) {
-        qmcArray[i].init();
+        qmcArray[i].qmc.init();
     }
 
     // Record starting time to delay Kalman filtering
@@ -448,14 +487,26 @@ void setup() {
 // ===                    MAIN PROGRAM LOOP                     ===
 // ================================================================
 
-JsonDocument mpu_print(MPU6050& mpu) {
+JsonDocument mpu_print(FilteredMPU& filtered) {
     JsonDocument doc;
 
     // read a packet from FIFO
-    if (mpu.dmpGetCurrentFIFOPacket(fifoBuffer)) { // Get the Latest packet
-#ifdef OUTPUT_READABLE_QUATERNION
+    if (filtered.mpu.dmpGetCurrentFIFOPacket(fifoBuffer)) { // Get the Latest packet
+
         // display quaternion values in easy matrix form: w x y z
-        mpu.dmpGetQuaternion(&q, fifoBuffer);
+        filtered.mpu.dmpGetQuaternion(&q, fifoBuffer);
+
+        auto predictedQuaternion = GetQuaternion(q);
+        if (kalmanSet)
+            predictedQuaternion = filtered.quat.update(predictedQuaternion);
+
+        doc["q"] = JsonDocument();
+        doc["q"].add(predictedQuaternion[0]);
+        doc["q"].add(predictedQuaternion[1]);
+        doc["q"].add(predictedQuaternion[2]);
+        doc["q"].add(predictedQuaternion[3]);
+
+#ifdef OUTPUT_READABLE_QUATERNION
         SerialPrintTitle("quat");
         Serial.print(round(q.w*1000));
         Serial.print("\t");
@@ -466,10 +517,20 @@ JsonDocument mpu_print(MPU6050& mpu) {
         Serial.println(round(q.z*1000));
 #endif
 
-#ifdef OUTPUT_READABLE_EULER
         // display Euler angles in degrees
-        mpu.dmpGetQuaternion(&q, fifoBuffer);
-        mpu.dmpGetEuler(euler, &q);
+        filtered.mpu.dmpGetQuaternion(&q, fifoBuffer);
+        filtered.mpu.dmpGetEuler(euler, &q);
+
+        auto predictedEuler = std::vector<float>(euler, euler + 3);
+        if (kalmanSet)
+            predictedEuler = filtered.euler.update(predictedEuler);
+
+        doc["e"] = JsonDocument();
+        doc["e"].add(predictedEuler[0]);
+        doc["e"].add(predictedEuler[1]);
+        doc["e"].add(predictedEuler[2]);
+
+#ifdef OUTPUT_READABLE_EULER
         SerialPrintTitle("euler");
         Serial.print(round(euler[0] * 180/M_PI));
         Serial.print("\t");
@@ -478,51 +539,18 @@ JsonDocument mpu_print(MPU6050& mpu) {
         Serial.println(round(euler[2] * 180/M_PI));
 #endif
 
-#ifdef OUTPUT_READABLE_YAWPITCHROLL
-        // display Euler angles in degrees
-            mpu.dmpGetQuaternion(&q, fifoBuffer);
-            mpu.dmpGetGravity(&gravity, &q);
-            mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-            SerialPrintTitle("ypr");
-            Serial.print(ypr[0] * 180/M_PI);
-            Serial.print("\t");
-            Serial.print(ypr[1] * 180/M_PI);
-            Serial.print("\t");
-            Serial.println(ypr[2] * 180/M_PI);
-#endif
+        filtered.mpu.dmpGetGyro(&gyro,fifoBuffer);
 
-#ifdef OUTPUT_READABLE_REALACCEL
-        // display real acceleration, adjusted to remove gravity
-        mpu.dmpGetQuaternion(&q, fifoBuffer);
-        mpu.dmpGetAccel(&aa, fifoBuffer);
-        mpu.dmpGetGravity(&gravity, &q);
-        mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
-        SerialPrintTitle("\nareal");
-        Serial.print(aaReal.x);
-        Serial.print("\t");
-        Serial.print(aaReal.y);
-        Serial.print("\t");
-        Serial.println(aaReal.z);
-#ifdef OUTPUT_ACC
-        SerialPrintTitle("acc");
-        Serial.print(aa.x);
-        Serial.print("\t");
-        Serial.print(aa.y);
-        Serial.print("\t");
-        Serial.println(aa.z);
-#endif
-#ifdef OUTPUT_GRAVITY
-        SerialPrintTitle("grav");
-        Serial.print(gravity.x);
-        Serial.print("\t");
-        Serial.print(gravity.y);
-        Serial.print("\t");
-        Serial.println(gravity.z);
-#endif
-#endif
+        auto predictedGyro = GetVectorInt16(gyro);
+        if (kalmanSet)
+            predictedGyro = filtered.gyro.update(GetVectorInt16(gyro));
 
-#ifdef OUTPUT_READABLE_GYRO
-        mpu.dmpGetGyro(&gyro,fifoBuffer);
+        doc["g"] = JsonDocument();
+        doc["g"].add(predictedGyro[0]);
+        doc["g"].add(predictedGyro[1]);
+        doc["g"].add(predictedGyro[2]);
+
+#ifndef NO_SERIAL
         SerialPrintTitle("AngularVal");
         Serial.print(gyro.x);
         Serial.print("\t");
@@ -530,104 +558,41 @@ JsonDocument mpu_print(MPU6050& mpu) {
         Serial.print("\t");
         Serial.println(gyro.z);
 #endif
-#ifdef OUTPUT_READABLE_WORLDACCEL
+
         // display initial world-frame acceleration, adjusted to remove gravity
         // and rotated based on known orientation from quaternion
-        mpu.dmpGetQuaternion(&q, fifoBuffer);
-        mpu.dmpGetAccel(&aa, fifoBuffer);
-        mpu.dmpGetGravity(&gravity, &q);
-        mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
-        mpu.dmpGetLinearAccelInWorld(&aaWorld, &aaReal, &q);
+        filtered.mpu.dmpGetQuaternion(&q, fifoBuffer);
+        filtered.mpu.dmpGetAccel(&aa, fifoBuffer);
+        filtered.mpu.dmpGetGravity(&gravity, &q);
+        filtered.mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
+        filtered.mpu.dmpGetLinearAccelInWorld(&aaWorld, &aaReal, &q);
 
-        if (!kalmanSet) {
-            if (millis() - timer > 5000) {
-                kf1.update(aaWorld.x);
-                kf2.update(aaWorld.y);
-                kf3.update(aaWorld.z);
+        auto predictedAcc = GetVectorInt16(aaWorld);
+        if (kalmanSet)
+            predictedAcc = filtered.acc.update(GetVectorInt16(aaWorld));
 
-                kalmanSet = true;
-
-#ifdef LED_PIN
-                // Turn off LED to indicate that filter is working
-                digitalWrite(LED_PIN, false);
-#endif
-            }
-
-            kalmanPredictions[0] = aaWorld.x;
-            kalmanPredictions[1] = aaWorld.y;
-            kalmanPredictions[2] = aaWorld.z;
-        } else {
-            kalmanPredictions[0] = aaWorld.x;
-            kalmanPredictions[1] = aaWorld.y;
-            kalmanPredictions[2] = aaWorld.z;
-//            kalmanPredictions[0] = kf1.update(aaWorld.x);
-//            kalmanPredictions[1] = kf2.update(aaWorld.y);
-//            kalmanPredictions[2] = kf3.update(aaWorld.z);
-        }
-
-        doc["aworld"] = JsonDocument();
-        doc["aworld"].add(kalmanPredictions[0]);
-        doc["aworld"].add(kalmanPredictions[1]);
-        doc["aworld"].add(kalmanPredictions[2]);
-
-#ifndef NO_SERIAL
-        SerialPrintTitle("\naworld");
-        Serial.print(kalmanPredictions[0]);
-        Serial.print("\t");
-        Serial.print(kalmanPredictions[1]);
-        Serial.print("\t");
-        Serial.println(kalmanPredictions[2]);
-#endif
-#ifdef OUTPUT_REALACC
-        SerialPrintTitle("areal");
-        Serial.print(aaReal.x);
-        Serial.print("\t");
-        Serial.print(aaReal.y);
-        Serial.print("\t");
-        Serial.println(aaReal.z);
-#endif
-#ifdef OUTPUT_ACC
-        SerialPrintTitle("acc");
-        Serial.print(aa.x);
-        Serial.print("\t");
-        Serial.print(aa.y);
-        Serial.print("\t");
-        Serial.println(aa.z);
-#endif
-#ifdef OUTPUT_GRAVITY
-        SerialPrintTitle("grav");
-        Serial.print(gravity.x);
-        Serial.print("\t");
-        Serial.print(gravity.y);
-        Serial.print("\t");
-        Serial.println(gravity.z);
-#endif
-#endif
-
-#ifdef OUTPUT_READABLE_MAGNET
-        // display magnetometer values
-        hmc.read();
-        SerialPrintTitle("mag");
-        Serial.print(hmc.getX());
-        Serial.print("\t");
-        Serial.print(hmc.getY());
-        Serial.print("\t");
-        Serial.println(hmc.getZ());
-#endif
+        doc["a"] = JsonDocument();
+        doc["a"].add(predictedAcc[0]);
+        doc["a"].add(predictedAcc[1]);
+        doc["a"].add(predictedAcc[2]);
     }
 
     return doc;
 }
 
-JsonDocument qmc_print(QMC5883LCompass& qmc) {
+JsonDocument qmc_print(FilteredQMC& filtered) {
     JsonDocument doc;
 
-    qmc.read();
+    filtered.qmc.read();
+
+    auto predictedMag = std::vector<float>{ (float)filtered.qmc.getX(), (float)filtered.qmc.getY(), (float)filtered.qmc.getZ() };
+    if (kalmanSet)
+        predictedMag = filtered.mag.update(predictedMag);
 
     doc["m"] = JsonDocument();
-    doc["m"].add(qmc.getX());
-    doc["m"].add(qmc.getY());
-    doc["m"].add(qmc.getZ());
+    doc["m"].add(predictedMag[0]);
+    doc["m"].add(predictedMag[1]);
+    doc["m"].add(predictedMag[2]);
 
     return doc;
 }
@@ -644,6 +609,10 @@ void loop() {
 #ifdef NO_SERIAL
     // 33ms delay between each sensor reading
     delay(33);
+
+    if (!kalmanSet && millis() - timer > KALMAN_DELAY) {
+        kalmanSet = true;
+    }
 
     for (int i = 0; i < mpuCount; i++) {
         if (dmpReady[i]) {
