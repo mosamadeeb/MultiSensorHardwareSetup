@@ -126,6 +126,12 @@ const int mpuCount = MPU_COUNT;
 const int mpuCount = 1;
 #endif
 
+#ifdef QMC_COUNT
+const int qmcCount = QMC_COUNT;
+#else
+const int qmcCount = 0;
+#endif
+
 // class default I2C address is 0x68
 // specific I2C addresses may be passed as a parameter here
 // AD0 low = 0x68 (default for SparkFun breakout and InvenSense evaluation board)
@@ -140,11 +146,18 @@ MPU6050 mpuArray[mpuCount] = {
         MPU6050(MPU6050_ADDRESS_AD0_LOW, &Wire1),
 #endif
 #if MPU_COUNT > 3
-        MPU6050(MPU6050_ADDRESS_AD0_HIGH, &Wire1)
+        MPU6050(MPU6050_ADDRESS_AD0_HIGH, &Wire1),
 #endif
 };
 
-QMC5883LCompass hmc;
+QMC5883LCompass qmcArray[qmcCount] = {
+#if QMC_COUNT > 0
+        QMC5883LCompass(&Wire),
+#endif
+#if QMC_COUNT > 1
+        QMC5883LCompass(&Wire1),
+#endif
+};
 
 /* =========================================================================
    NOTE: In addition to connection 3.3v, GND, SDA, and SCL, this sketch
@@ -349,14 +362,6 @@ void setup() {
     // crystal solution for the UART timer.
 #endif
 
-    // initialize device
-//    Serial.println(F("Initializing I2C devices..."));
-    hmc.init();
-
-    // verify connection
-//    Serial.println(F("Testing device connections..."));
-//    Serial.println(mpu.testConnection() ? F("MPU6050 connection successful") : F("MPU6050 connection failed"));
-
 #ifndef NO_SERIAL
     // wait for ready
 //    Serial.println(F("\nSend any character to begin DMP programming and demo: "));
@@ -418,6 +423,11 @@ void setup() {
             Serial.println(F(")"));
 #endif
         }
+    }
+
+    // Initialize QMCs
+    for (int i = 0; i < qmcCount; i++) {
+        qmcArray[i].init();
     }
 
     // Record starting time to delay Kalman filtering
@@ -609,24 +619,42 @@ JsonDocument mpu_print(MPU6050& mpu) {
     return doc;
 }
 
+JsonDocument qmc_print(QMC5883LCompass& qmc) {
+    JsonDocument doc;
+
+    qmc.read();
+
+    doc["m"] = JsonDocument();
+    doc["m"].add(qmc.getX());
+    doc["m"].add(qmc.getY());
+    doc["m"].add(qmc.getZ());
+
+    return doc;
+}
+
 void loop() {
     JsonDocument doc;
+
+    doc["mpu"] = JsonDocument();
+    JsonArray mpu = doc["mpu"];
+
+    doc["qmc"] = JsonDocument();
+    JsonArray qmc = doc["qmc"];
 
 #ifdef NO_SERIAL
     // 33ms delay between each sensor reading
     delay(33);
 
-    if (dmpReady[0]) {
-        doc["mpu1"] = mpu_print(mpuArray[0]);
+    for (int i = 0; i < mpuCount; i++) {
+        if (dmpReady[i]) {
+            mpu.add(mpu_print(mpuArray[i]));
+        }
     }
-    if (dmpReady[1]) {
-        doc["mpu2"] = mpu_print(mpuArray[1]);
-    }
-    if (dmpReady[2]) {
-        doc["mpu3"] = mpu_print(mpuArray[2]);
-    }
-    if (dmpReady[3]) {
-        doc["mpu4"] = mpu_print(mpuArray[3]);
+
+    for (int i = 0; i < qmcCount; i++) {
+        if (dmpReady[i]) {
+            qmc.add(qmc_print(qmcArray[i]));
+        }
     }
 #else
     while (Serial.available() <= 0);
