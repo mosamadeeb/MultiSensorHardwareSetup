@@ -88,7 +88,7 @@ class MyServerCallbacks: public BLEServerCallbacks {
 #define KALMAN_RK 4.7e-3
 #define KALMAN_QK 5e-4
 
-unsigned long timer = 0;
+uint32_t timer = 0;
 bool kalmanSet = false;
 
 // Arduino Wire library is required if I2Cdev I2CDEV_ARDUINO_WIRE implementation
@@ -202,7 +202,8 @@ std::vector<float> inline GetQuaternion(Quaternion& q) {
     return {q.w, q.x, q.y, q.z};
 }
 
-#define STRING(s) #s
+#define xstr(s) str(s)
+#define str(s) #s
 
 // ================================================================
 // ===                      INITIAL SETUP                       ===
@@ -228,7 +229,7 @@ void setup() {
 
 #ifdef ADAFRUIT
     Bluefruit.begin();
-    Bluefruit.setName(STRING(DEVICE_NAME));
+    Bluefruit.setName(xstr(DEVICE_NAME));
     Bluefruit.setTxPower(4);    // Check bluefruit.h for supported values
 
     Bluefruit.Periph.setConnectCallback(connect_callback);
@@ -239,7 +240,7 @@ void setup() {
 
     characteristic.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ | CHR_PROPS_WRITE | CHR_PROPS_INDICATE);
     characteristic.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
-    characteristic.setMaxLen(242);
+    characteristic.setMaxLen(200);
     characteristic.begin();
 
     // This descriptor is included by default, no need to add it.
@@ -269,7 +270,7 @@ void setup() {
     Bluefruit.Advertising.setFastTimeout(30);      // number of seconds in fast mode
     Bluefruit.Advertising.start();      // Stop advertising entirely after ADV_TIMEOUT seconds
 #else
-    BLEDevice::init(STRING(DEVICE_NAME));
+    BLEDevice::init(xstr(DEVICE_NAME));
 
     // Create the BLE Server
     pServer = BLEDevice::createServer();
@@ -320,6 +321,9 @@ void setup() {
     while (Serial.available() && Serial.read()); // empty buffer
     while (!Serial.available());                 // wait for data
     while (Serial.available() && Serial.read()); // empty buffer again
+#else
+    // Delay initialization if not using serial
+    delay(500);
 #endif
 
     // Initialize MPUs
@@ -402,21 +406,10 @@ JsonDocument mpu_read(FilteredMPU& filtered) {
             predictedQuaternion = filtered.quat.update(predictedQuaternion);
 
         doc["q"] = JsonDocument();
-        doc["q"].add(predictedQuaternion[0] * 1000);
-        doc["q"].add(predictedQuaternion[1] * 1000);
-        doc["q"].add(predictedQuaternion[2] * 1000);
-        doc["q"].add(predictedQuaternion[3] * 1000);
-
-#ifdef OUTPUT_READABLE_QUATERNION
-        SerialPrintTitle("quat");
-        Serial.print(round(q.w*1000));
-        Serial.print("\t");
-        Serial.print(round(q.x*1000));
-        Serial.print("\t");
-        Serial.print(round(q.y*1000));
-        Serial.print("\t");
-        Serial.println(round(q.z*1000));
-#endif
+        doc["q"].add((int)(predictedQuaternion[0] * 1000));
+        doc["q"].add((int)(predictedQuaternion[1] * 1000));
+        doc["q"].add((int)(predictedQuaternion[2] * 1000));
+        doc["q"].add((int)(predictedQuaternion[3] * 1000));
 
         // display Euler angles in degrees
         filtered.mpu.dmpGetQuaternion(&q, fifoBuffer);
@@ -426,19 +419,11 @@ JsonDocument mpu_read(FilteredMPU& filtered) {
         if (kalmanSet)
             predictedEuler = filtered.euler.update(predictedEuler);
 
+        // TODO: Figure out what is causing NaN values for Euler Y angle
         doc["e"] = JsonDocument();
-        doc["e"].add(predictedEuler[0] * 180/M_PI);
-        doc["e"].add(predictedEuler[1] * 180/M_PI);
-        doc["e"].add(predictedEuler[2] * 180/M_PI);
-
-#ifdef OUTPUT_READABLE_EULER
-        SerialPrintTitle("euler");
-        Serial.print(round(euler[0] * 180/M_PI));
-        Serial.print("\t");
-        Serial.print(round(euler[1] * 180/M_PI));
-        Serial.print("\t");
-        Serial.println(round(euler[2] * 180/M_PI));
-#endif
+        doc["e"].add(isnan(predictedEuler[0]) ? 0 : (int)(predictedEuler[0] * 180/M_PI));
+        doc["e"].add(isnan(predictedEuler[1]) ? 0 : (int)(predictedEuler[1] * 180/M_PI));
+        doc["e"].add(isnan(predictedEuler[2]) ? 0 : (int)(predictedEuler[2] * 180/M_PI));
 
         filtered.mpu.dmpGetGyro(&gyro,fifoBuffer);
 
@@ -447,18 +432,9 @@ JsonDocument mpu_read(FilteredMPU& filtered) {
             predictedGyro = filtered.gyro.update(GetVectorInt16(gyro));
 
         doc["g"] = JsonDocument();
-        doc["g"].add(predictedGyro[0]);
-        doc["g"].add(predictedGyro[1]);
-        doc["g"].add(predictedGyro[2]);
-
-#ifndef NO_SERIAL
-        SerialPrintTitle("AngularVal");
-        Serial.print(gyro.x);
-        Serial.print("\t");
-        Serial.print(gyro.y);
-        Serial.print("\t");
-        Serial.println(gyro.z);
-#endif
+        doc["g"].add((int)(predictedGyro[0] * 1000));
+        doc["g"].add((int)(predictedGyro[1] * 1000));
+        doc["g"].add((int)(predictedGyro[2] * 1000));
 
         // acceleration components with gravity removed and adjusted for the world frame of
         // reference (yaw is relative to initial orientation, since no magnetometer
@@ -474,9 +450,9 @@ JsonDocument mpu_read(FilteredMPU& filtered) {
             predictedAcc = filtered.acc.update(GetVectorInt16(aaWorld));
 
         doc["a"] = JsonDocument();
-        doc["a"].add(predictedAcc[0]);
-        doc["a"].add(predictedAcc[1]);
-        doc["a"].add(predictedAcc[2]);
+        doc["a"].add((int)predictedAcc[0]);
+        doc["a"].add((int)predictedAcc[1]);
+        doc["a"].add((int)predictedAcc[2]);
     }
 
     return doc;
@@ -503,32 +479,32 @@ JsonDocument qmc_read(FilteredQMC& filtered) {
 // ===                    MAIN PROGRAM LOOP                     ===
 // ================================================================
 
+// TODO: Check this with different values for each board, and use as a build flag in platformio.ini
+#define BLE_LOOP_DELAY 150
+
 void loop() {
     JsonDocument doc;
 
     doc["mpu"] = JsonDocument();
-    JsonArray mpu = doc["mpu"];
-
     doc["qmc"] = JsonDocument();
-    JsonArray qmc = doc["qmc"];
 
 #ifdef NO_SERIAL
-    // 33ms delay between each sensor reading
-    delay(33);
+    // 66ms delay between each sensor reading
+    delay(BLE_LOOP_DELAY);
 
-    if (!kalmanSet && millis() - timer > KALMAN_DELAY) {
+    if (!kalmanSet && (millis() - timer) > KALMAN_DELAY) {
         kalmanSet = true;
     }
 
     for (int i = 0; i < mpuCount; i++) {
         if (dmpReady[i]) {
-            mpu.add(mpu_read(mpuArray[i]));
+            doc["mpu"].add(mpu_read(mpuArray[i]));
         }
     }
 
     for (int i = 0; i < qmcCount; i++) {
         if (dmpReady[i]) {
-            qmc.add(qmc_read(qmcArray[i]));
+            doc["qmc"].add(qmc_read(qmcArray[i]));
         }
     }
 #else
@@ -536,13 +512,13 @@ void loop() {
 
     char c = Serial.read();
     if (c == 'g' && dmpReady[0]) {
-        doc["mpu1"] = mpu_print(mpuArray[0]);
+        doc["mpu1"] = mpu_read(mpuArray[0]);
     } else if (c == 'f' && dmpReady[1]) {
-        doc["mpu2"] = mpu_print(mpuArray[1]);
+        doc["mpu2"] = mpu_read(mpuArray[1]);
     } else if (c == 'd' && dmpReady[2]) {
-        doc["mpu3"] = mpu_print(mpuArray[2]);
+        doc["mpu3"] = mpu_read(mpuArray[2]);
     } else if (c == 's' && dmpReady[3]) {
-        doc["mpu4"] = mpu_print(mpuArray[3]);
+        doc["mpu4"] = mpu_read(mpuArray[3]);
     }
 #endif
 
