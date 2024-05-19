@@ -44,8 +44,8 @@ void calibration();
 ///////////////////////////////////   CONFIGURATION   /////////////////////////////
 //Change this 3 variables if you want to fine tune the skecth to your needs.
 int buffersize=1000;     //Amount of readings used to average, make it higher to get more precision but sketch will be slower  (default:1000)
-int acel_deadzone=8;     //Acelerometer error allowed, make it lower to get more precision, but sketch may not converge  (default:8)
-int gyro_deadzone=1;     //Gyro error allowed, make it lower to get more precision, but sketch may not converge  (default:1)
+int acel_deadzone=14;     //Acelerometer error allowed, make it lower to get more precision, but sketch may not converge  (default:8)
+int gyro_deadzone=4;     //Gyro error allowed, make it lower to get more precision, but sketch may not converge  (default:1)
 
 // default I2C address is 0x68
 // specific I2C addresses may be passed as a parameter here
@@ -216,6 +216,8 @@ void meansensors(){
     }
 }
 
+bool ready[6] = {false, false, false, false, false, false};
+
 void calibration(){
     ax_offset=-mean_ax/8;
     ay_offset=-mean_ay/8;
@@ -224,37 +226,75 @@ void calibration(){
     gx_offset=-mean_gx/4;
     gy_offset=-mean_gy/4;
     gz_offset=-mean_gz/4;
-    while (1){
-        int ready=0;
-        accelgyro.setXAccelOffset(ax_offset);
-        accelgyro.setYAccelOffset(ay_offset);
-        accelgyro.setZAccelOffset(az_offset);
+    while (true){
 
-        accelgyro.setXGyroOffset(gx_offset);
-        accelgyro.setYGyroOffset(gy_offset);
-        accelgyro.setZGyroOffset(gz_offset);
+        if (!ready[0]) accelgyro.setXAccelOffset(ax_offset);
+        if (!ready[1]) accelgyro.setYAccelOffset(ay_offset);
+        if (!ready[2]) accelgyro.setZAccelOffset(az_offset);
+
+        if (!ready[3]) accelgyro.setXGyroOffset(gx_offset);
+        if (!ready[4]) accelgyro.setYGyroOffset(gy_offset);
+        if (!ready[5]) accelgyro.setZGyroOffset(gz_offset);
 
         meansensors();
         Serial.println("...");
 
-        if (abs(mean_ax)<=acel_deadzone) ready++;
-        else ax_offset=ax_offset-mean_ax/acel_deadzone;
+        if (!ready[0]) {
+            if (abs(mean_ax)<=acel_deadzone) {
+                ready[0] = true;
+                Serial.println("AccX ready");
+            }
+            else ax_offset=ax_offset-mean_ax/acel_deadzone;
+        }
 
-        if (abs(mean_ay)<=acel_deadzone) ready++;
-        else ay_offset=ay_offset-mean_ay/acel_deadzone;
+        if (!ready[1]) {
+            if (abs(mean_ay)<=acel_deadzone) {
+                ready[1] = true;
+                Serial.println("AccY ready");
+            }
+            else ay_offset=ay_offset-mean_ay/acel_deadzone;
+        }
 
-        if (abs(16384-mean_az)<=acel_deadzone) ready++;
-        else az_offset=az_offset+(16384-mean_az)/acel_deadzone;
+        if (!ready[2]) {
+            if (abs(16384-mean_az)<=acel_deadzone) {
+                ready[2] = true;
+                Serial.println("AccZ ready");
+            }
+            else az_offset=az_offset+(16384-mean_az)/acel_deadzone;
+        }
 
-        if (abs(mean_gx)<=gyro_deadzone) ready++;
-        else gx_offset=gx_offset-mean_gx/(gyro_deadzone+1);
+        if (!ready[3]) {
+            if (abs(mean_gx)<=gyro_deadzone) {
+                ready[3] = true;
+                Serial.println("GyroX ready");
+            }
+            else gx_offset=gx_offset-mean_gx/(gyro_deadzone+1);
+        }
 
-        if (abs(mean_gy)<=gyro_deadzone) ready++;
-        else gy_offset=gy_offset-mean_gy/(gyro_deadzone+1);
+        if (!ready[4]) {
+            if (abs(mean_gy)<=gyro_deadzone) {
+                ready[4] = true;
+                Serial.println("GyroY ready");
+            }
+            else gy_offset=gy_offset-mean_gy/(gyro_deadzone+1);
+        }
 
-        if (abs(mean_gz)<=gyro_deadzone) ready++;
-        else gz_offset=gz_offset-mean_gz/(gyro_deadzone+1);
+        if (!ready[5]) {
+            if (abs(mean_gz)<=gyro_deadzone) {
+                ready[5] = true;
+                Serial.println("GyroZ ready");
+            }
+            else gz_offset=gz_offset-mean_gz/(gyro_deadzone+1);
+        }
 
-        if (ready==6) break;
+        bool done = true;
+        for (int i = 0; i < 6; i++) {
+            if (!ready[i]) {
+                done = false;
+                break;
+            }
+        }
+
+        if (done) break;
     }
 }
