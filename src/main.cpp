@@ -468,9 +468,9 @@ JsonDocument qmc_read(FilteredQMC& filtered) {
         predictedMag = filtered.mag.update(predictedMag);
 
     doc["m"] = JsonDocument();
-    doc["m"].add(predictedMag[0]);
-    doc["m"].add(predictedMag[1]);
-    doc["m"].add(predictedMag[2]);
+    doc["m"].add((int)predictedMag[0]);
+    doc["m"].add((int)predictedMag[1]);
+    doc["m"].add((int)predictedMag[2]);
 
     return doc;
 }
