@@ -84,6 +84,9 @@ class MyServerCallbacks: public BLEServerCallbacks {
 #include "FilteredMPU.h"
 #include "FilteredQMC.h"
 
+// Uncomment to disable low pass and kalman filtering
+#define NO_FILTERS
+
 // Delay initializing the filter to omit extreme data readings
 #define KALMAN_DELAY 5000
 #define KALMAN_RK 4.7e-3
@@ -353,8 +356,11 @@ void setup() {
         mpu.setYGyroOffset(-17);
         mpu.setZGyroOffset(-24);
 #endif
+
+#ifndef NO_FILTERS
         // Set Low Pass Filter to 10Hz
         mpu.setDLPFMode(MPU6050_DLPF_BW_10);
+#endif
 
         if (devStatus == 0) {
             // Calibration Time: generate offsets and calibrate our MPU6050
@@ -500,13 +506,15 @@ void loop() {
     // 66ms delay between each sensor reading
     delay(BLE_LOOP_DELAY);
 
+#ifndef NO_FILTERS
     if (!kalmanSet && (millis() - timer) > KALMAN_DELAY) {
         kalmanSet = true;
     }
+#endif
 
     for (int i = 0; i < mpuCount; i++) {
         if (dmpReady[i]) {
-            doc["mpu"].add(mpu_read(mpuArray[i]));
+            doc["mpu"].add(mpu_read(mpuArray[i], getSensorsForMPU(i)));
         }
     }
 
