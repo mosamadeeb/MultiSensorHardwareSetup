@@ -79,6 +79,7 @@ class MyServerCallbacks: public BLEServerCallbacks {
 #include "QMC5883LCompass.h"
 
 #include "calibration_data.h"
+#include "position_data.h"
 #include "TrivialKalmanVector.h"
 #include "FilteredMPU.h"
 #include "FilteredQMC.h"
@@ -392,12 +393,13 @@ void setup() {
 }
 
 
-JsonDocument mpu_read(FilteredMPU& filtered) {
+JsonDocument mpu_read(FilteredMPU& filtered, SensorType sensors) {
     JsonDocument doc;
 
     // read a packet from FIFO
     if (filtered.mpu.dmpGetCurrentFIFOPacket(fifoBuffer)) { // Get the Latest packet
 
+        // Always calculate quaternion as it is used by the other measurements
         // display quaternion values in easy matrix form: w x y z
         filtered.mpu.dmpGetQuaternion(&q, fifoBuffer);
 
@@ -405,54 +407,60 @@ JsonDocument mpu_read(FilteredMPU& filtered) {
         if (kalmanSet)
             predictedQuaternion = filtered.quat.update(predictedQuaternion);
 
-        doc["q"] = JsonDocument();
-        doc["q"].add((int)(predictedQuaternion[0] * 1000));
-        doc["q"].add((int)(predictedQuaternion[1] * 1000));
-        doc["q"].add((int)(predictedQuaternion[2] * 1000));
-        doc["q"].add((int)(predictedQuaternion[3] * 1000));
+        if ((sensors & SensorType::Quat) != SensorType::None) {
+            doc["q"] = JsonDocument();
+            doc["q"].add((int)(predictedQuaternion[0] * 1000));
+            doc["q"].add((int)(predictedQuaternion[1] * 1000));
+            doc["q"].add((int)(predictedQuaternion[2] * 1000));
+            doc["q"].add((int)(predictedQuaternion[3] * 1000));
+        }
 
-        // display Euler angles in degrees
-        filtered.mpu.dmpGetQuaternion(&q, fifoBuffer);
-        filtered.mpu.dmpGetEuler(euler, &q);
+        if ((sensors & SensorType::Euler) != SensorType::None) {
+            // display Euler angles in degrees
+            filtered.mpu.dmpGetEuler(euler, &q);
 
-        auto predictedEuler = std::vector<float>(euler, euler + 3);
-        if (kalmanSet)
-            predictedEuler = filtered.euler.update(predictedEuler);
+            auto predictedEuler = std::vector<float>(euler, euler + 3);
+            if (kalmanSet)
+                predictedEuler = filtered.euler.update(predictedEuler);
 
-        // TODO: Figure out what is causing NaN values for Euler Y angle
-        doc["e"] = JsonDocument();
-        doc["e"].add(isnan(predictedEuler[0]) ? 0 : (int)(predictedEuler[0] * 180/M_PI));
-        doc["e"].add(isnan(predictedEuler[1]) ? 0 : (int)(predictedEuler[1] * 180/M_PI));
-        doc["e"].add(isnan(predictedEuler[2]) ? 0 : (int)(predictedEuler[2] * 180/M_PI));
+            // TODO: Figure out what is causing NaN values for Euler Y angle
+            doc["e"] = JsonDocument();
+            doc["e"].add(isnan(predictedEuler[0]) ? 0 : (int) (predictedEuler[0] * 180 / M_PI));
+            doc["e"].add(isnan(predictedEuler[1]) ? 0 : (int) (predictedEuler[1] * 180 / M_PI));
+            doc["e"].add(isnan(predictedEuler[2]) ? 0 : (int) (predictedEuler[2] * 180 / M_PI));
+        }
 
-        filtered.mpu.dmpGetGyro(&gyro,fifoBuffer);
+        if ((sensors & SensorType::Gyro) != SensorType::None) {
+            filtered.mpu.dmpGetGyro(&gyro, fifoBuffer);
 
-        auto predictedGyro = GetVectorInt16(gyro);
-        if (kalmanSet)
-            predictedGyro = filtered.gyro.update(GetVectorInt16(gyro));
+            auto predictedGyro = GetVectorInt16(gyro);
+            if (kalmanSet)
+                predictedGyro = filtered.gyro.update(GetVectorInt16(gyro));
 
-        doc["g"] = JsonDocument();
-        doc["g"].add((int)(predictedGyro[0] * 1000));
-        doc["g"].add((int)(predictedGyro[1] * 1000));
-        doc["g"].add((int)(predictedGyro[2] * 1000));
+            doc["g"] = JsonDocument();
+            doc["g"].add((int) (predictedGyro[0] * 1000));
+            doc["g"].add((int) (predictedGyro[1] * 1000));
+            doc["g"].add((int) (predictedGyro[2] * 1000));
+        }
 
-        // acceleration components with gravity removed and adjusted for the world frame of
-        // reference (yaw is relative to initial orientation, since no magnetometer
-        // is present in this case).
-        filtered.mpu.dmpGetQuaternion(&q, fifoBuffer);
-        filtered.mpu.dmpGetAccel(&aa, fifoBuffer);
-        filtered.mpu.dmpGetGravity(&gravity, &q);
-        filtered.mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
-        filtered.mpu.dmpGetLinearAccelInWorld(&aaWorld, &aaReal, &q);
+        if ((sensors & SensorType::Acc) != SensorType::None) {
+            // acceleration components with gravity removed and adjusted for the world frame of
+            // reference (yaw is relative to initial orientation, since no magnetometer
+            // is present in this case).
+            filtered.mpu.dmpGetAccel(&aa, fifoBuffer);
+            filtered.mpu.dmpGetGravity(&gravity, &q);
+            filtered.mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
+            filtered.mpu.dmpGetLinearAccelInWorld(&aaWorld, &aaReal, &q);
 
-        auto predictedAcc = GetVectorInt16(aaWorld);
-        if (kalmanSet)
-            predictedAcc = filtered.acc.update(GetVectorInt16(aaWorld));
+            auto predictedAcc = GetVectorInt16(aaWorld);
+            if (kalmanSet)
+                predictedAcc = filtered.acc.update(GetVectorInt16(aaWorld));
 
-        doc["a"] = JsonDocument();
-        doc["a"].add((int)predictedAcc[0]);
-        doc["a"].add((int)predictedAcc[1]);
-        doc["a"].add((int)predictedAcc[2]);
+            doc["a"] = JsonDocument();
+            doc["a"].add((int) predictedAcc[0]);
+            doc["a"].add((int) predictedAcc[1]);
+            doc["a"].add((int) predictedAcc[2]);
+        }
     }
 
     return doc;
