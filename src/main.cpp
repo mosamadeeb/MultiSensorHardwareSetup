@@ -340,22 +340,6 @@ void setup() {
 
         // supply your own gyro offsets here, scaled for min sensitivity
         calibrateMPU(mpu, i);
-#ifdef SENSOR_1
-        mpu.setXAccelOffset(-909);
-        mpu.setYAccelOffset(-2);
-        mpu.setZAccelOffset(1062);
-        mpu.setXGyroOffset(72);
-        mpu.setYGyroOffset(58);
-        mpu.setZGyroOffset(-10);
-#endif
-#ifdef SENSOR_2
-        mpu.setXAccelOffset(-3874);
-        mpu.setYAccelOffset(13);
-        mpu.setZAccelOffset(1058);
-        mpu.setXGyroOffset(-5);
-        mpu.setYGyroOffset(-17);
-        mpu.setZGyroOffset(-24);
-#endif
 
 #ifndef NO_FILTERS
         // Set Low Pass Filter to 10Hz
@@ -489,12 +473,27 @@ JsonDocument qmc_read(FilteredQMC& filtered) {
     return doc;
 }
 
+void reinit_mpu(int i) {
+    mpuArray[i].mpu.initialize();
+    calibrateMPU(mpuArray[i].mpu, i);
+    mpuArray[i].mpu.setDMPEnabled(true);
+    dmpReady[i] = true;
+}
+
+void reinit_qmc(int i) {
+    qmcArray[i].qmc.init();
+    calibrateQMC(qmcArray[i].qmc, i);
+}
+
 // ================================================================
 // ===                    MAIN PROGRAM LOOP                     ===
 // ================================================================
 
 // TODO: Check this with different values for each board, and use as a build flag in platformio.ini
 #define BLE_LOOP_DELAY 150
+
+#define SENSOR_CHECK_DELAY 2000
+static int sensorCheckTimer = 0;
 
 void loop() {
     JsonDocument doc;
@@ -503,8 +502,23 @@ void loop() {
     doc["qmc"] = JsonDocument();
 
 #ifdef NO_SERIAL
-    // 66ms delay between each sensor reading
+    // Delay between each sensor reading
     delay(BLE_LOOP_DELAY);
+
+    if ((millis() - sensorCheckTimer) > SENSOR_CHECK_DELAY) {
+        sensorCheckTimer = millis();
+        for (int i = 0; i < mpuCount; i++) {
+            if (!dmpReady[i] || !mpuArray[i].mpu.testConnection()) {
+                reinit_mpu(i);
+
+                // If the MPU was disconnected, then the magnetometer on the same bus probably was too
+                int busIndex = i / 2;
+                if (qmcCount > busIndex) {
+                    reinit_qmc(busIndex);
+                }
+            }
+        }
+    }
 
 #ifndef NO_FILTERS
     if (!kalmanSet && (millis() - timer) > KALMAN_DELAY) {
