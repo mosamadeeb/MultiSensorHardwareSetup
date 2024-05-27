@@ -375,6 +375,22 @@ void setup() {
     // Initialize QMCs
     for (int i = 0; i < qmcCount; i++) {
         qmcArray[i].qmc.init();
+
+//        qmcArray[i].qmc.calibrate();
+//
+//        Serial.print("QMC Calibration Offsets: ");
+//        Serial.print(qmcArray[i].qmc.getCalibrationOffset(0));
+//        Serial.print(", ");
+//        Serial.print(qmcArray[i].qmc.getCalibrationOffset(1));
+//        Serial.print(", ");
+//        Serial.println(qmcArray[i].qmc.getCalibrationOffset(2));
+//        Serial.print("QMC Calibration Scales: ");
+//        Serial.print(qmcArray[i].qmc.getCalibrationScale(0));
+//        Serial.print(", ");
+//        Serial.print(qmcArray[i].qmc.getCalibrationScale(1));
+//        Serial.print(", ");
+//        Serial.println(qmcArray[i].qmc.getCalibrationScale(2));
+
         calibrateQMC(qmcArray[i].qmc, i);
     }
 
@@ -501,7 +517,6 @@ void loop() {
     doc["mpu"] = JsonDocument();
     doc["qmc"] = JsonDocument();
 
-#ifdef NO_SERIAL
     // Delay between each sensor reading
     delay(BLE_LOOP_DELAY);
 
@@ -537,20 +552,6 @@ void loop() {
             doc["qmc"].add(qmc_read(qmcArray[i]));
         }
     }
-#else
-    while (Serial.available() <= 0);
-
-    char c = Serial.read();
-    if (c == 'g' && dmpReady[0]) {
-        doc["mpu1"] = mpu_read(mpuArray[0]);
-    } else if (c == 'f' && dmpReady[1]) {
-        doc["mpu2"] = mpu_read(mpuArray[1]);
-    } else if (c == 'd' && dmpReady[2]) {
-        doc["mpu3"] = mpu_read(mpuArray[2]);
-    } else if (c == 's' && dmpReady[3]) {
-        doc["mpu4"] = mpu_read(mpuArray[3]);
-    }
-#endif
 
     if (deviceConnected) {
         if (doc.size() != 0) {

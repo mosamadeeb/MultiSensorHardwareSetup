@@ -85,19 +85,19 @@ void calibrateMPU(MPU6050& mpu, int index) {
 void calibrateQMC(QMC5883LCompass& qmc, int index) {
     if (strcmp(xstr(DEVICE_NAME), "L_ARM_ESP32") == 0) {
         if (index == 0) {
-            qmc.setCalibrationOffsets(0, 0, 0);
-            qmc.setCalibrationScales(1, 1, 1);
+            qmc.setCalibrationOffsets(63.00, -141.00, -743.00);
+            qmc.setCalibrationScales(5.01, 2.24, 0.42);
         } else if (index == 1) {
-            qmc.setCalibrationOffsets(0, 0, 0);
-            qmc.setCalibrationScales(1, 1, 1);
+            qmc.setCalibrationOffsets(-256.00, -640.00, -763.00);
+            qmc.setCalibrationScales(2.16, 0.86, 0.72);
         }
     } else if (strcmp(xstr(DEVICE_NAME), "R_ARM_ESP32") == 0) {
         if (index == 0) {
-            qmc.setCalibrationOffsets(0, 0, 0);
-            qmc.setCalibrationScales(1, 1, 1);
+            qmc.setCalibrationOffsets(3.00, 820.00, -503.00);
+            qmc.setCalibrationScales(2.09, 0.64, 1.04);
         } else if (index == 1) {
-            qmc.setCalibrationOffsets(0, 0, 0);
-            qmc.setCalibrationScales(1, 1, 1);
+            qmc.setCalibrationOffsets(-473.00, -267.00, -646.00);
+            qmc.setCalibrationScales(0.98, 1.73, 0.72);
         }
 
     }
