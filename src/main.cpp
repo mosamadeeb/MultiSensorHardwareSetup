@@ -269,7 +269,7 @@ void setup() {
      * https://developer.apple.com/library/content/qa/qa1931/_index.html
      */
 //    Bluefruit.Advertising.setStopCallback(adv_stop_callback);
-    Bluefruit.Advertising.restartOnDisconnect(true);
+//    Bluefruit.Advertising.restartOnDisconnect(true);
     Bluefruit.Advertising.setInterval(32, 244);    // in units of 0.625 ms
     Bluefruit.Advertising.setFastTimeout(30);      // number of seconds in fast mode
     Bluefruit.Advertising.start();      // Stop advertising entirely after ADV_TIMEOUT seconds
@@ -582,7 +582,7 @@ void loop() {
     if (!deviceConnected && oldDeviceConnected) {
         delay(500); // give the bluetooth stack the chance to get things ready
 #ifdef ADAFRUIT
-
+        Bluefruit.Advertising.start();
 #else
         pServer->startAdvertising(); // restart advertising
 #endif
