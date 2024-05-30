@@ -3,6 +3,9 @@
 
 #include "Arduino.h"
 
+// Uncomment this line to send all available sensor data for MPU
+#define USE_ALL_SENSORS
+
 enum struct SensorType {
     None = 0,
     Acc = 1,
@@ -25,6 +28,9 @@ inline SensorType operator&(SensorType a, SensorType b)
 #define str(s) #s
 
 SensorType getSensorsForMPU(int index) {
+#ifdef USE_ALL_SENSORS
+    return SensorType::Acc | SensorType::Gyro | SensorType::Quat | SensorType::Euler;
+#else
     if (strcmp(xstr(DEVICE_NAME), "L_ARM_ESP32") == 0) {
         switch (index) {
             case 0:
@@ -64,6 +70,7 @@ SensorType getSensorsForMPU(int index) {
     }
 
     return SensorType::None;
+#endif
 }
 
 #endif //MULTISENSORARDUINO_POSITION_DATA_H
