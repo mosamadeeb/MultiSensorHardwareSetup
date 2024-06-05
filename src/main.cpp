@@ -60,13 +60,42 @@ BLEServer* pServer = NULL;
 BLECharacteristic* pCharacteristic = NULL;
 
 class MyServerCallbacks: public BLEServerCallbacks {
-    void onConnect(BLEServer* server) {
+    void onConnect(BLEServer* server, esp_ble_gatts_cb_param_t *param) {
+#ifndef NO_SERIAL
+        Serial.println("Current connection params\n--------------------------");
+        Serial.print("Interval: "); // Default: 60ms
+        Serial.print(param->connect.conn_params.interval * 1.25f);
+        Serial.println("ms");
+        Serial.print("Latency: ");  // Default: 0
+        Serial.println(param->connect.conn_params.latency);
+        Serial.print("Timeout: ");  // Default: 9600ms
+        Serial.print(param->connect.conn_params.timeout * 10);
+        Serial.println("ms");
+#endif
+
+        // Update connection parameters
+        float minIntervalMs = 50;
+        float maxIntervalMs = 100;
+        int timeoutMs = 4000;
+
+        pServer->updatePeerMTU(param->connect.conn_id, 247);
+        pServer->updateConnParams(
+                param->connect.remote_bda,
+                (uint16_t)(minIntervalMs / 1.25f),
+                (uint16_t)(maxIntervalMs / 1.25f), 3, timeoutMs / 10);
+
         deviceConnected = true;
-        BLEDevice::startAdvertising();
+
+//        // Keep advertising for quick reconnection
+//        BLEDevice::startAdvertising();
+        BLEDevice::stopAdvertising();
     };
 
     void onDisconnect(BLEServer* server) {
         deviceConnected = false;
+
+        // Start advertising to allow for reconnection
+        BLEDevice::startAdvertising();
     }
 };
 #endif
@@ -121,6 +150,7 @@ const int qmcCount = 0;
 // AD0 high = 0x69
 
 FilteredMPU mpuArray[mpuCount] = {
+#if MPU_COUNT > 0
     {
         MPU6050(MPU6050_ADDRESS_AD0_LOW, &Wire),
         TrivialKalmanVector<float>(3, KALMAN_RK, KALMAN_QK),
@@ -128,6 +158,7 @@ FilteredMPU mpuArray[mpuCount] = {
         TrivialKalmanVector<float>(3, KALMAN_RK, KALMAN_QK),
         TrivialKalmanVector<float>(4, KALMAN_RK, KALMAN_QK),
     },
+#endif
 #if MPU_COUNT > 1
     {
         MPU6050(MPU6050_ADDRESS_AD0_HIGH, &Wire),
@@ -300,10 +331,10 @@ void setup() {
     pService->start();
 
     // Start advertising
-    BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-    pAdvertising->addServiceUUID(SERVICE_UUID);
-    pAdvertising->setScanResponse(false);
-    pAdvertising->setMinPreferred(0x0);  // set value to 0x00 to not advertise this parameter
+//    BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+//    pAdvertising->addServiceUUID(SERVICE_UUID);
+//    pAdvertising->setScanResponse(false);
+//    pAdvertising->setMinPreferred(0x0);  // set value to 0x00 to not advertise this parameter
     BLEDevice::startAdvertising();
 //    Serial.println("Waiting a client connection to notify...");
 #endif
@@ -505,6 +536,17 @@ void reinit_qmc(int i) {
 // ===                    MAIN PROGRAM LOOP                     ===
 // ================================================================
 
+// PLAN: Buffer the data according to the processing capabilities of the mcu
+// Send after every x data points, measure average time taken to process those x data points
+// We want to synchronize all mcus and still have a good data rate
+//
+// Once we update the characteristic value, we leave it up for y ms
+// The pi should read the value in those y ms, which should be enough for going over all the mcus in one interval
+// We're going to have to sync the data once we get it on the central pi, so we should store the initial time of each mcu in the pi
+// We can then calculate the time difference between the mcus and the pi, and use that to sync the data
+//
+// Filtering should be done on the server pi, right before giving the data to the model
+
 // TODO: Check this with different values for each board, and use as a build flag in platformio.ini
 #define BLE_LOOP_DELAY 150
 
@@ -571,6 +613,7 @@ void loop() {
             characteristic.write(values.c_str(), size);
 #else
             pCharacteristic->setValue(values);
+            pCharacteristic->notify();
 #endif
 #ifndef NO_SERIAL
             Serial.println(values.c_str());
