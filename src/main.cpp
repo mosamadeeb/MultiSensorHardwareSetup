@@ -35,6 +35,13 @@ bool oldDeviceConnected = false;
 #define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
+// BLE connection parameters
+const int MTU_SIZE = 247;
+const float MIN_INTERVAL_MS = 50;
+const float MAX_INTERVAL_MS = 100;
+const int TIMEOUT_MS = 4000;
+const int SLAVE_LATENCY = 3;
+
 #ifdef ADAFRUIT
 #include <bluefruit.h>
 
@@ -42,12 +49,19 @@ BLEService        service(SERVICE_UUID);
 BLECharacteristic characteristic(CHARACTERISTIC_UUID);
 
 void connect_callback(uint16_t conn_handle) {
+    Bluefruit.Periph.setConnIntervalMS(MIN_INTERVAL_MS, MAX_INTERVAL_MS);
+    Bluefruit.Periph.setConnSlaveLatency(SLAVE_LATENCY);
+    Bluefruit.Periph.setConnSupervisionTimeoutMS(TIMEOUT_MS);
+
     deviceConnected = true;
+    Bluefruit.Advertising.stop();
 //    Serial.println("Connected!");
 }
 
 void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
     deviceConnected = false;
+    if (!Bluefruit.Advertising.isRunning())
+        Bluefruit.Advertising.start();
 //    Serial.println("Disconnected!");
 }
 
@@ -72,17 +86,11 @@ class MyServerCallbacks: public BLEServerCallbacks {
         Serial.print(param->connect.conn_params.timeout * 10);
         Serial.println("ms");
 #endif
-
-        // Update connection parameters
-        float minIntervalMs = 50;
-        float maxIntervalMs = 100;
-        int timeoutMs = 4000;
-
-        pServer->updatePeerMTU(param->connect.conn_id, 247);
+        pServer->updatePeerMTU(param->connect.conn_id, MTU_SIZE);
         pServer->updateConnParams(
                 param->connect.remote_bda,
-                (uint16_t)(minIntervalMs / 1.25f),
-                (uint16_t)(maxIntervalMs / 1.25f), 3, timeoutMs / 10);
+                (uint16_t)(MIN_INTERVAL_MS / 1.25f),
+                (uint16_t)(MAX_INTERVAL_MS / 1.25f), SLAVE_LATENCY, TIMEOUT_MS / 10);
 
         deviceConnected = true;
 
@@ -133,12 +141,14 @@ bool kalmanSet = false;
 #include <math.h>
 
 #ifdef MPU_COUNT
+#define MPU_COUNT 0
 const int mpuCount = MPU_COUNT;
 #else
 const int mpuCount = 1;
 #endif
 
 #ifdef QMC_COUNT
+#define QMC_COUNT 0
 const int qmcCount = QMC_COUNT;
 #else
 const int qmcCount = 0;
@@ -275,7 +285,7 @@ void setup() {
 
     characteristic.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ | CHR_PROPS_WRITE | CHR_PROPS_INDICATE);
     characteristic.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
-    characteristic.setMaxLen(200);
+    characteristic.setMaxLen(MTU_SIZE);
     characteristic.begin();
 
     // This descriptor is included by default, no need to add it.
@@ -610,7 +620,7 @@ void loop() {
             }
 
 #ifdef ADAFRUIT
-            characteristic.write(values.c_str(), size);
+            characteristic.notify(values.c_str(), size);
 #else
             pCharacteristic->setValue(values);
             pCharacteristic->notify();
