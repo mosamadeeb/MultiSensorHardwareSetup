@@ -553,7 +553,7 @@ void reinit_qmc(int i) {
 // Filtering should be done on the server pi, right before giving the data to the model
 
 // TODO: Check this with different values for each board, and use as a build flag in platformio.ini
-#define BLE_LOOP_DELAY 150
+#define BLE_LOOP_DELAY 300
 
 #define SENSOR_CHECK_DELAY 2000
 static int sensorCheckTimer = 0;
