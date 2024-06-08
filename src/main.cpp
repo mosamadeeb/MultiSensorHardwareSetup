@@ -37,10 +37,10 @@ bool oldDeviceConnected = false;
 
 // BLE connection parameters
 const int MTU_SIZE = 247;
-const float MIN_INTERVAL_MS = 50;
-const float MAX_INTERVAL_MS = 100;
-const int TIMEOUT_MS = 4000;
-const int SLAVE_LATENCY = 3;
+const float MIN_INTERVAL_MS = 20;
+const float MAX_INTERVAL_MS = 40;
+const int TIMEOUT_MS = 2000;
+const int SLAVE_LATENCY = 1;
 
 #ifdef ADAFRUIT
 #include <bluefruit.h>
@@ -542,7 +542,7 @@ void reinit_qmc(int i) {
 // ================================================================
 
 // TODO: Check this with different values for each board, and use as a build flag in platformio.ini
-#define BLE_LOOP_DELAY 300
+#define BLE_LOOP_DELAY 60
 
 #define SENSOR_CHECK_DELAY 2000
 static int sensorCheckTimer = 0;
