@@ -49,6 +49,9 @@ BLEService        service(SERVICE_UUID);
 BLECharacteristic characteristic(CHARACTERISTIC_UUID);
 
 void connect_callback(uint16_t conn_handle) {
+    // Wait for a bit before setting the connection parameters
+    delay(500);
+
     Bluefruit.Periph.setConnIntervalMS(MIN_INTERVAL_MS, MAX_INTERVAL_MS);
     Bluefruit.Periph.setConnSlaveLatency(SLAVE_LATENCY);
     Bluefruit.Periph.setConnSupervisionTimeoutMS(TIMEOUT_MS);
@@ -271,9 +274,11 @@ void setup() {
 #endif
 
 #ifdef ADAFRUIT
+    // Use max MTU size before starting because mtu negotiation doesn't work
+    Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
+
     Bluefruit.begin();
     Bluefruit.setName(xstr(DEVICE_NAME));
-    Bluefruit.setTxPower(4);    // Check bluefruit.h for supported values
 
     Bluefruit.Periph.setConnectCallback(connect_callback);
     Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
@@ -286,17 +291,9 @@ void setup() {
     characteristic.setMaxLen(MTU_SIZE);
     characteristic.begin();
 
-    // This descriptor is included by default, no need to add it.
-//    characteristic.addDescriptor(BLE_UUID_DESCRIPTOR_CLIENT_CHAR_CONFIG, "", 0);
-
     // Advertising packet
     Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
-    Bluefruit.Advertising.addTxPower();
-
-    Bluefruit.Advertising.addService(service);
-
     Bluefruit.Advertising.addName();
-
 
     /* Start Advertising
      * - Enable auto advertising if disconnected
@@ -610,15 +607,14 @@ void loop() {
             std::string values;
             serializeMsgPack(doc, values);
 
-            size_t size = values.size();
-            if (size > 242) {
+            if (values.size() > 242) {
 #ifndef NO_SERIAL
                 Serial.println("WARNING: MessagePack size exceeds 242 bytes");
 #endif
             }
 
 #ifdef ADAFRUIT
-            characteristic.notify(values.c_str(), size);
+            characteristic.notify(values.data(), values.size());
 #else
             pCharacteristic->setValue(values);
             pCharacteristic->notify();
