@@ -141,14 +141,12 @@ bool kalmanSet = false;
 #include <math.h>
 
 #ifdef MPU_COUNT
-#define MPU_COUNT 0
 const int mpuCount = MPU_COUNT;
 #else
 const int mpuCount = 1;
 #endif
 
 #ifdef QMC_COUNT
-#define QMC_COUNT 0
 const int qmcCount = QMC_COUNT;
 #else
 const int qmcCount = 0;
