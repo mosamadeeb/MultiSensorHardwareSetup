@@ -541,17 +541,6 @@ void reinit_qmc(int i) {
 // ===                    MAIN PROGRAM LOOP                     ===
 // ================================================================
 
-// PLAN: Buffer the data according to the processing capabilities of the mcu
-// Send after every x data points, measure average time taken to process those x data points
-// We want to synchronize all mcus and still have a good data rate
-//
-// Once we update the characteristic value, we leave it up for y ms
-// The pi should read the value in those y ms, which should be enough for going over all the mcus in one interval
-// We're going to have to sync the data once we get it on the central pi, so we should store the initial time of each mcu in the pi
-// We can then calculate the time difference between the mcus and the pi, and use that to sync the data
-//
-// Filtering should be done on the server pi, right before giving the data to the model
-
 // TODO: Check this with different values for each board, and use as a build flag in platformio.ini
 #define BLE_LOOP_DELAY 300
 
@@ -607,11 +596,11 @@ void loop() {
             std::string values;
             serializeMsgPack(doc, values);
 
-            if (values.size() > 242) {
 #ifndef NO_SERIAL
+            if (values.size() > 242) {
                 Serial.println("WARNING: MessagePack size exceeds 242 bytes");
-#endif
             }
+#endif
 
 #ifdef ADAFRUIT
             characteristic.notify(values.data(), values.size());
@@ -620,27 +609,9 @@ void loop() {
             pCharacteristic->notify();
 #endif
 #ifndef NO_SERIAL
+            // This may not print the entire data if there is null in the middle
             Serial.println(values.c_str());
 #endif
         }
-        delay(33); // bluetooth stack will go into congestion, if too many packets are sent, in 6 hours test i was able to go as low as 3ms
-    }
-    // disconnecting
-    if (!deviceConnected && oldDeviceConnected) {
-        delay(500); // give the bluetooth stack the chance to get things ready
-#ifdef ADAFRUIT
-        Bluefruit.Advertising.start();
-#else
-        pServer->startAdvertising(); // restart advertising
-#endif
-#ifndef NO_SERIAL
-        Serial.println("start advertising");
-#endif
-        oldDeviceConnected = deviceConnected;
-    }
-    // connecting
-    if (deviceConnected && !oldDeviceConnected) {
-        // do stuff here on connecting
-        oldDeviceConnected = deviceConnected;
     }
 }
