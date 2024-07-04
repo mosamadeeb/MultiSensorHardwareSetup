@@ -2,7 +2,7 @@
 
 Embedded program that collects data from multiple 6+3 axis sensors and sends them over to a local server via Bluetooth LE for ML inference. Designed to be deployed and synchronized on multiple MCUs.
 
-This repository is part of our Capstone project at METU NCC: [Multi Sensor Activity Based Health Monitoring System](https://www.linkedin.com/posts/noor-ul-zain-305144145_happy-to-share-the-successful-completion-activity-7211286326636122112-rPOE)
+This repository is part of our Capstone project at METU NCC: [Multi Sensor Activity Detection Based Health Monitoring System](https://www.linkedin.com/posts/noor-ul-zain-305144145_happy-to-share-the-successful-completion-activity-7211286326636122112-rPOE)
 
 ## Context
 
@@ -48,3 +48,16 @@ The sensors are placed on various locations on the body (arms, wrists, knee, etc
   - e.g. [Seeed Studio XIAO nRF52840](https://wiki.seeedstudio.com/XIAO_BLE/)
 - Linux device with Bluetooth LE (bluez) to run the Python server
   - e.g. [Raspberry Pi 5](https://www.raspberrypi.com/products/raspberry-pi-5/)
+
+---
+
+## Showcase
+
+- Project demo
+
+[![Multi Sensor Project Demo](https://markdown-videos-api.jorgenkh.no/url?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DPTZN8VcAowk)](https://www.youtube.com/watch?v=PTZN8VcAowk)
+
+- Poster and Hardware setup
+
+<img src="https://github.com/mosamadeeb/MultiSensorHardwareSetup/assets/52977072/9410fe9f-6b51-4667-9152-51a90ff08059" height="600"> <img src="https://github.com/mosamadeeb/MultiSensorHardwareSetup/assets/52977072/2ea393db-d69c-4e37-a8ea-77c869616344" height="600">
+
